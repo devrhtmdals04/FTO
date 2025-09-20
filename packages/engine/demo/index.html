@@ -1,12 +1,121 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ko">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Engine WASM Demo</title>
+    <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <h1>Engine WASM Demo</h1>
-    <pre id="output">Loading...</pre>
+    <header class="topbar">
+      <div class="brand">Engine Demo</div>
+      <div class="controls">
+        <button id="btn-play" class="btn">Play</button>
+        <button id="btn-step" class="btn">Step</button>
+        <label class="speed">
+          Speed
+          <select id="speed">
+            <option value="0.5">0.5×</option>
+            <option value="1" selected>1×</option>
+            <option value="2">2×</option>
+            <option value="4">4×</option>
+          </select>
+        </label>
+        <button id="btn-reset" class="btn" title="초기화">Reset</button>
+      </div>
+      <nav class="toggles">
+        <button class="btn toggle" data-panel="actions">Actions</button>
+        <button class="btn toggle" data-panel="tactics">Tactics</button>
+        <button class="btn toggle" data-panel="debug">Debug</button>
+        <button class="btn toggle" data-panel="metrics">Metrics</button>
+      </nav>
+    </header>
+
+    <!-- Left sidebar: Debug + View + Tactics (collapsible) -->
+    <aside class="sidebar left" id="left-sidebar">
+      <button class="collapse-btn" id="left-collapse" title="접기">⟨</button>
+      <div class="sidebar-section">
+        <h3>Debug</h3>
+        <label><input id="dbg-grid" type="checkbox" checked /> Grid</label>
+        <label><input id="dbg-trajectory" type="checkbox" checked /> Ball Trajectory</label>
+        <label><input id="dbg-vectors" type="checkbox" /> Velocity Vectors</label>
+      </div>
+      <div class="sidebar-section">
+        <h3>View</h3>
+        <label>Tilt (deg)
+          <input id="cam-tilt" type="range" min="0" max="45" step="1" value="0" />
+        </label>
+      </div>
+      <div class="sidebar-section">
+        <h3>Tactics</h3>
+        <label>Line Height <input id="tx-line" type="range" min="0" max="1" step="0.01" value="0.5" /></label>
+        <label>Team Width <input id="tx-width" type="range" min="0" max="1" step="0.01" value="0.6" /></label>
+        <label>Press Intensity <input id="tx-press" type="range" min="0" max="1" step="0.01" value="0.5" /></label>
+        <button id="btn-apply-tactics" class="btn" style="margin-top:8px">Apply</button>
+      </div>
+    </aside>
+
+    <!-- Right sidebar removed (tactics moved left) -->
+
+    <main class="stage">
+      <canvas id="pitch" width="960" height="540"></canvas>
+    </main>
+
+    <section id="panel-actions" class="panel hidden">
+      <div class="panel-header">
+        <h3>Actions</h3>
+        <button class="btn btn-close" data-close>×</button>
+      </div>
+      <div class="panel-body">
+        <div class="group">
+          <button id="mode-pass" class="btn btn-secondary">Ground Pass</button>
+          <button id="mode-loft" class="btn btn-secondary">Lofted Pass</button>
+          <button id="mode-shoot" class="btn btn-secondary">Shoot</button>
+        </div>
+        <p class="hint">필드 클릭으로 목표 지점을 지정합니다.</p>
+      </div>
+    </section>
+
+    <section id="panel-tactics" class="panel hidden">
+      <div class="panel-header">
+        <h3>Tactics</h3>
+        <button class="btn btn-close" data-close>×</button>
+      </div>
+      <div class="panel-body">
+        <p class="hint">오른쪽 사이드바에서 전술을 조정하세요.</p>
+      </div>
+    </section>
+
+    <section id="panel-debug" class="panel hidden">
+      <div class="panel-header">
+        <h3>Debug</h3>
+        <button class="btn btn-close" data-close>×</button>
+      </div>
+      <div class="panel-body">
+        <p class="hint">왼쪽 사이드바에서 디버그 옵션과 카메라를 설정하세요.</p>
+      </div>
+    </section>
+
+    <section id="panel-metrics" class="panel hidden">
+      <div class="panel-header">
+        <h3>Metrics</h3>
+        <button class="btn btn-close" data-close>×</button>
+      </div>
+      <div class="panel-body">
+        <pre id="output">Loading...</pre>
+      </div>
+    </section>
+
+    <div id="player-info" class="panel hidden" style="position: absolute; z-index: 10; width: 220px;">
+      <div class="panel-header">
+        <h3>Player Info</h3>
+        <button class="btn btn-close" data-close>×</button>
+      </div>
+      <div class="panel-body">
+        <pre id="player-info-content"></pre>
+      </div>
+    </div>
+
     <script type="module" src="./main.js"></script>
   </body>
 </html>

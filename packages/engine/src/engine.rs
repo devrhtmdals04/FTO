@@ -37,6 +37,7 @@ impl Engine {
         self.scheduler.step();
         self.world.advance_overrides();
         self.process_commands();
+        self.update_ai();
         step_players(&mut self.world);
         step_ball(&mut self.world);
         handle_restarts(&mut self.world);
@@ -44,6 +45,22 @@ impl Engine {
         let _offside = check_offside(&self.world);
         self.update_hash();
         self.physics.rebuild_spatial(&self.world);
+    }
+
+    fn update_ai(&mut self) {
+        let ball_pos = Vec2::new(self.world.bx, self.world.by);
+
+        for i in 0..crate::state::N_PLAYERS {
+            if self.scheduler.should_evaluate(i) {
+                let player_pos = self.world.player_pos(i);
+                
+                // Simple AI: move towards the ball
+                let desired_dir = (ball_pos - player_pos).normalize();
+                let desired_vel = desired_dir * crate::params::PLAYER_VMAX * 0.7; // Move at 70% of max speed
+
+                self.world.pcommand[i].target_vel = desired_vel;
+            }
+        }
     }
 
     pub fn state_hash(&self) -> [u8; 32] {
