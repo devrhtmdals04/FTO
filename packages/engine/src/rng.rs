@@ -32,6 +32,10 @@ impl DeterministicRng {
     pub fn fill_bytes(&mut self, dest: &mut [u8]) {
         self.inner.fill_bytes(dest);
     }
+
+    pub fn as_mut(&mut self) -> &mut Pcg32 {
+        &mut self.inner
+    }
 }
 
 impl rand::SeedableRng for DeterministicRng {

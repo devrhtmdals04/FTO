@@ -64,10 +64,16 @@ fn update_facing(world: &mut World, idx: usize, vel: Vec2, omega_max: f32, dt: f
 }
 
 fn update_stamina(world: &mut World, idx: usize, speed: f32, params: crate::types::PlayerParams) {
-    let fatigue = speed * 0.005;
-    world.pfatigue[idx] = (world.pfatigue[idx] + fatigue).clamp(0.0, 1.0);
-    let recovery = 0.002 * (1.0 - speed / params.v_max.max(0.1));
-    world.pstamina[idx] = (world.pstamina[idx] - fatigue + recovery).clamp(0.0, 1.0);
+    if params.stamina_max > 0.0 {
+        let cost_per_second = speed * params.stamina_move_cost;
+        let recovery_per_second = params.stamina_recovery;
+
+        let stamina_change = (recovery_per_second - cost_per_second) * DT;
+        let current_stamina_points = world.pstamina[idx] * params.stamina_max;
+        let new_stamina_points = (current_stamina_points + stamina_change).clamp(0.0, params.stamina_max);
+
+        world.pstamina[idx] = new_stamina_points / params.stamina_max;
+    }
 }
 
 fn normalize_angle(angle: f32) -> f32 {

@@ -237,6 +237,21 @@ export class WasmEngine {
     command(cmd) {
         wasm.wasmengine_command(this.__wbg_ptr, cmd);
     }
+    /**
+     * @returns {string}
+     */
+    getPlayerDataJson() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.wasmengine_getPlayerDataJson(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
 }
 
 const EXPECTED_RESPONSE_TYPES = new Set(['basic', 'cors', 'default']);

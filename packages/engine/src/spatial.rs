@@ -1,4 +1,5 @@
 use crate::params::{GRID_X, GRID_Y, PITCH_H, PITCH_W};
+use crate::state::{World, N_PLAYERS};
 use crate::types::Vec2;
 
 const TOTAL_CELLS: usize = GRID_X * GRID_Y;
@@ -30,6 +31,13 @@ impl SpatialHash {
     pub fn insert(&mut self, idx: usize, pos: Vec2) {
         if let Some(cell) = self.cell_mut(pos) {
             cell.push(idx);
+        }
+    }
+
+    pub fn rebuild(&mut self, world: &World) {
+        self.clear();
+        for idx in 0..N_PLAYERS {
+            self.insert(idx, world.player_pos(idx));
         }
     }
 

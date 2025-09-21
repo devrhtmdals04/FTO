@@ -7,6 +7,7 @@ export class WasmEngine {
   snapshot(): Uint8Array;
   delta(): Uint8Array;
   command(cmd: any): void;
+  getPlayerDataJson(): string;
 }
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
@@ -19,6 +20,7 @@ export interface InitOutput {
   readonly wasmengine_snapshot: (a: number) => [number, number];
   readonly wasmengine_delta: (a: number) => [number, number];
   readonly wasmengine_command: (a: number, b: any) => void;
+  readonly wasmengine_getPlayerDataJson: (a: number) => [number, number];
   readonly __wbindgen_malloc: (a: number, b: number) => number;
   readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
   readonly __wbindgen_exn_store: (a: number) => void;

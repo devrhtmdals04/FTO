@@ -2,12 +2,28 @@ import init, { WasmEngine } from "../pkg/engine.js";
 
 // Simple oblique projection for 2.5D feel
 const DEG = Math.PI / 180;
-const camera = { yaw: 0 * DEG, pitch: 0 * DEG, scale: 6 }; // px per meter (pitch lowered for gentle tilt)
+const camera = { yaw: 0 * DEG, pitch: 12 * DEG, scale: 6 }; // 기본 2.5D 틸트 // px per meter (pitch lowered for gentle tilt)
 const FIELD = { W: 105, H: 68 };
 const GOAL_W = 7.32, GOAL_H = 2.44;
-const PLAYER_RADIUS = 0.35; // meters
-const BALL_RADIUS = 0.11; // meters
+const PLAYER_RADIUS = 0.525; // meters
+const BALL_RADIUS = 0.165; // meters
 let jsTick = 0;
+
+// --- Visual scale defaults from height/weight (BMI-aware) ---
+function computeVisScale(height_cm, weight_kg) {
+  // Returns a scale factor (1.0 = 100%) based on height and BMI.
+  // Height dominates, BMI contributes mildly. Clamped to [0.75, 1.35].
+  if (!height_cm && !weight_kg) return 1.0;
+  const H0 = 180, BMI0 = 22;
+  const h = Math.max(140, Math.min(210, height_cm || H0));
+  const m = h / 100;
+  const bmi = weight_kg ? Math.max(16, Math.min(32, weight_kg / (m * m))) : BMI0;
+  const heightTerm = Math.pow(h / H0, 0.9);
+  const bmiTerm = Math.pow(bmi / BMI0, 0.25);
+  const s = heightTerm * bmiTerm;
+  return Math.max(0.75, Math.min(1.35, s));
+}
+
 
 function project(x, y, z) {
   const c = Math.cos(camera.yaw), s = Math.sin(camera.yaw);
@@ -53,15 +69,16 @@ function decodeSnapshot(bytes) {
     vz: i16() / velDiv,
     mode: u8(),
   };
-  const players = [];
-  const N = 22;
-  for (let i = 0; i < N; i++) {
-    const px = i16() / posDiv, py = i16() / posDiv;
-    const vx = i16() / velDiv, vy = i16() / velDiv;
-    const stamina = u16();
-    players.push({ px, py, vx, vy, stamina });
-  }
-  return { tick, ms, phase, home, away, ball, players };
+      const players = [];
+      const N = 22;
+      for (let i = 0; i < N; i++) {
+        const px = i16() / posDiv, py = i16() / posDiv;
+        const vx = i16() / velDiv, vy = i16() / velDiv;
+        const stamina = u16();
+        const vis_scale = u8(); // Read vis_scale
+        const collider_radius_opt = i16(); // Read collider_radius_opt
+        players.push({ px, py, vx, vy, stamina, vis_scale, collider_radius_opt });
+      }  return { tick, ms, phase, home, away, ball, players };
 }
 
 function drawField(ctx) {
@@ -133,8 +150,38 @@ async function run() {
   await init();
 
   const engine = new WasmEngine(42n);
+  const allPlayersData = JSON.parse(engine.getPlayerDataJson());
+  console.log("Fetched all player static data:", allPlayersData);
+
   const canvas = document.getElementById("pitch");
+  // Debug HUD
+  let hud = document.getElementById('debug-hud');
+  if (!hud) {
+    hud = document.createElement('div');
+    hud.id = 'debug-hud';
+    hud.style.position = 'fixed';
+    hud.style.top = '12px';
+    hud.style.right = '12px';
+    hud.style.background = 'rgba(20,22,25,0.7)';
+    hud.style.color = '#cfe9ff';
+    hud.style.padding = '8px 12px';
+    hud.style.font = '12px ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace';
+    hud.style.borderRadius = '10px';
+    hud.style.whiteSpace = 'pre';
+    hud.style.pointerEvents = 'none';
+    hud.style.zIndex = 1000;
+    hud.textContent = 'HUD…';
+    document.body.appendChild(hud);
+  }
+
   const ctx = canvas.getContext("2d");
+  // Stats
+  let smoothedFps = 0;
+  let lastFrameTs = performance.now();
+  let lastRenderMs = 0;
+  let lastSnapBytes = 0;
+  let drawCalls = 0;
+
   const output = document.getElementById("output");
   const trail = [];
   let lastSnapshotData = null;
@@ -159,15 +206,48 @@ async function run() {
     const scaleY = height / projH;
     // Use slight safety margin to avoid clipping the lines
     camera.scale = Math.min(scaleX, scaleY) * 0.98;
+
+    console.log(`fitCanvasAndCamera: canvas.width=${canvas.width}, canvas.height=${canvas.height}, camera.scale=${camera.scale.toFixed(2)}`);
   }
   fitCanvasAndCamera();
   window.addEventListener("resize", fitCanvasAndCamera);
-  // View controls (tilt only)
+
+  // View controls (tilt & yaw)
   const tiltInput = document.getElementById("cam-tilt");
   if (tiltInput) tiltInput.addEventListener("input", (e) => {
     camera.pitch = parseFloat(e.target.value) * DEG;
     fitCanvasAndCamera();
   });
+
+  // Yaw slider (create if missing)
+  let yawInput = document.getElementById("cam-yaw");
+  if (!yawInput) {
+    const panel = document.createElement('div');
+    panel.style.position = 'fixed';
+    panel.style.bottom = '16px';
+    panel.style.right = '16px';
+    panel.style.background = 'rgba(20,22,25,0.7)';
+    panel.style.backdropFilter = 'blur(4px)';
+    panel.style.padding = '8px 12px';
+    panel.style.borderRadius = '12px';
+    panel.style.fontFamily = 'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto';
+    panel.style.color = '#e8f0f2';
+    panel.style.zIndex = 1000;
+    panel.innerHTML = '<label style="font-size:12px;display:block;margin-bottom:4px">Yaw <span id="cam-yaw-deg">0°</span></label>';
+    yawInput = document.createElement('input');
+    yawInput.type = 'range'; yawInput.min = '-60'; yawInput.max = '60'; yawInput.value = '0'; yawInput.step = '1';
+    yawInput.id = 'cam-yaw';
+    yawInput.style.width = '220px';
+    panel.appendChild(yawInput);
+    document.body.appendChild(panel);
+  }
+  const yawDegLabel = document.getElementById('cam-yaw-deg');
+  yawInput.addEventListener('input', (e) => {
+    const deg = parseFloat(e.target.value);
+    camera.yaw = deg * DEG;
+    if (yawDegLabel) yawDegLabel.textContent = `${deg.toFixed(0)}°`;
+  });
+
 
   // Collapsible left sidebar
   const leftSidebar = document.getElementById("left-sidebar");
@@ -219,9 +299,11 @@ async function run() {
     document.getElementById("dbg-vectors").checked = false;
     // Speed
     const speedSel = document.getElementById("speed"); speedSel.value = "1"; speed = 1.0;
-    // Tilt
+    // Tilt/Yaw
     if (tiltInput) { tiltInput.value = "0"; camera.pitch = 0 * DEG; }
     camera.yaw = 0;
+    const yawInputEl = document.getElementById('cam-yaw');
+    if (yawInputEl) { yawInputEl.value = '0'; const l = document.getElementById('cam-yaw-deg'); if (l) l.textContent = '0°'; }
     // Tactics sliders
     const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = String(v); };
     setVal("tx-line", 0.5); setVal("tx-width", 0.6); setVal("tx-press", 0.5);
@@ -249,9 +331,15 @@ async function run() {
       const prj = project(ball.x, ball.y, ball.z);
       const ballScreenX = prj.x + canvas.width / 2;
       const ballScreenY = prj.y + canvas.height / 2;
-      const dist = Math.hypot(clickX - ballScreenX, clickY - ballScreenY);
+      const distToBall = Math.hypot(clickX - ballScreenX, clickY - ballScreenY);
 
-      if (dist < 10) { // 10px click radius for the ball
+      console.log(`Click at (${clickX.toFixed(2)}, ${clickY.toFixed(2)}). Distance to ball: ${distToBall.toFixed(2)}`);
+
+      // 화면상 볼 반지름을 고려한 동적 클릭 반경
+      const ryB = ball.x * Math.sin(camera.yaw) + ball.y * Math.cos(camera.yaw);
+      const perspB = 1 - (0.4 * Math.sin(camera.pitch)) * (ryB / (FIELD.H / 2));
+      const screenBallR = BALL_RADIUS * perspB * camera.scale;
+      if (distToBall < Math.max(10, screenBallR + 5)) {
         console.log(`%cBall clicked!`, 'color: yellow; font-weight: bold;');
         console.log(`Ball world coords: (${ball.x.toFixed(2)}, ${ball.y.toFixed(2)}, ${ball.z.toFixed(2)})`);
         console.log(`Ball screen coords: (${ballScreenX.toFixed(2)}, ${ballScreenY.toFixed(2)})`);
@@ -296,27 +384,48 @@ async function run() {
       .sort((a, b) => b.prj.yGround - a.prj.yGround);
 
     for (const p of playersSorted) {
-        const playerScreenX = p.prj.x + canvas.width / 2;
-        const playerScreenY = p.prj.y - 2 + canvas.height / 2; // -2 for the drawn offset
-        const dist = Math.hypot(clickX - playerScreenX, clickY - playerScreenY);
+        // Compute on-screen radius consistent with drawPlayers()
+        const ry = p.px * Math.sin(camera.yaw) + p.py * Math.cos(camera.yaw);
+        const persp = 1 - (0.4 * Math.sin(camera.pitch)) * (ry / (FIELD.H / 2));
+        const staticData = allPlayersData?.[p.idx] ?? {};
+        const hM = (staticData.height_cm ? staticData.height_cm / 100 : 1.8);
+        const defaultScale = computeVisScale(staticData.height_cm, staticData.weight_kg);
+        const visScale = (typeof p.vis_scale === "number" && p.vis_scale > 0) ? Math.max(0.5, p.vis_scale / 100) : defaultScale;
+        const colliderRadiusM = (typeof p.collider_radius_opt === "number" && p.collider_radius_opt > 0) ? (p.collider_radius_opt / 100) : PLAYER_RADIUS;
+        const screenRadius = colliderRadiusM * visScale * persp * camera.scale;
+        const prjGround = project(p.px, p.py, 0);
+        const prjTop    = project(p.px, p.py, hM);
+        const bodyY = prjGround.y - Math.abs(prjGround.y - prjTop.y);
 
-        if (dist < 50) { // Log only for players reasonably close to the click
-            console.log(`Checking player ${p.idx} at (${playerScreenX.toFixed(2)}, ${playerScreenY.toFixed(2)}). Distance to click: ${dist.toFixed(2)}`);
-        }
+        const playerScreenX = prjGround.x + canvas.width / 2;
+        const playerScreenY = bodyY + canvas.height / 2;
+        const distToPlayer = Math.hypot(clickX - playerScreenX, clickY - playerScreenY);
 
-        if (dist < 10) { // 10px click radius
+        if (distToPlayer < Math.max(10, screenRadius + 4)) {
             clickedPlayer = p;
             clickedPlayerIndex = p.idx;
-            console.log(`%cPlayer ${clickedPlayerIndex} clicked!`, "color: lightgreen; font-weight: bold;");
             break;
         }
     }
-
-    const infoPanel = document.getElementById('player-info');
+const infoPanel = document.getElementById('player-info');
     if (clickedPlayer) {
         const infoContent = document.getElementById('player-info-content');
         const team = clickedPlayerIndex < 11 ? 'Home' : 'Away';
-        const infoText = `Index: ${clickedPlayerIndex}\nTeam: ${team}\nPos: (${clickedPlayer.px.toFixed(2)}, ${clickedPlayer.py.toFixed(2)})\nVel: (${clickedPlayer.vx.toFixed(2)}, ${clickedPlayer.vy.toFixed(2)})\nStamina: ${(clickedPlayer.stamina / 1000).toFixed(2)}`;
+        const staticPlayerData = allPlayersData[clickedPlayerIndex];
+
+        let infoText = `Name: ${staticPlayerData.name}\nTeam: ${team}\nPos: (${clickedPlayer.px.toFixed(2)}, ${clickedPlayer.py.toFixed(2)})\nVel: (${clickedPlayer.vx.toFixed(2)}, ${clickedPlayer.vy.toFixed(2)})\nStamina: ${(clickedPlayer.stamina / 1000).toFixed(2)}
+
+Ratings:\n`;
+        for (const key in staticPlayerData) {
+            if (typeof staticPlayerData[key] === 'number' && key !== 'height_cm' && key !== 'weight_kg' && key !== 'weak_foot') {
+                infoText += `  ${key}: ${staticPlayerData[key]}\n`;
+            }
+        }
+        infoText += `Height: ${staticPlayerData.height_cm} cm\n`;
+        infoText += `Weight: ${staticPlayerData.weight_kg} kg\n`;
+        infoText += `Foot: ${staticPlayerData.foot}\n`;
+        infoText += `Weak Foot: ${staticPlayerData.weak_foot}\n`;
+
         infoContent.textContent = infoText;
 
         infoPanel.style.left = `${ev.clientX + 15}px`;
@@ -346,7 +455,7 @@ async function run() {
     jsTick++;
   }
 
-  function drawPlayers(ctx, players) {
+  function drawPlayers(ctx, players, allPlayersData) {
     // Build projected list with depth key (yGround)
     const list = players.map((p, idx) => {
       const prj = project(p.px, p.py, 0);
@@ -354,26 +463,37 @@ async function run() {
     });
     list.sort((a, b) => a.prj.yGround - b.prj.yGround);
 
-    const playerVisualHeight = 1.8; // meters
+    const defaultHeightM = 1.8; // meters
 
     for (const item of list) {
       const { idx, prj, p, v } = item;
       const home = idx < 11; // assume 0..10 home, 11..21 away
 
       // Calculate perspective and screen radius at the player's position
+            // Calculate perspective and screen radius at the player's position
       const ry = p.px * Math.sin(camera.yaw) + p.py * Math.cos(camera.yaw);
       const maxPerspectiveStrength = 0.4;
       const perspectiveStrength = maxPerspectiveStrength * Math.sin(camera.pitch);
       const perspective = 1 - perspectiveStrength * (ry / (FIELD.H / 2));
-      const screenRadius = PLAYER_RADIUS * perspective * camera.scale;
 
-      // Project the top of the player's head to find the height on screen
-      const topPrj = project(p.px, p.py, playerVisualHeight);
+      const staticData = allPlayersData?.[idx] ?? {};
+      const hM = (staticData.height_cm ? staticData.height_cm / 100 : defaultHeightM);
+      const defaultScale = computeVisScale(staticData.height_cm, staticData.weight_kg);
+      const visScale = (typeof p.vis_scale === "number" && p.vis_scale > 0) ? Math.max(0.5, p.vis_scale / 100) : defaultScale;
+      const colliderRadiusM = (typeof p.collider_radius_opt === "number" && p.collider_radius_opt > 0)
+        ? (p.collider_radius_opt / 100)  // cm → m
+        : PLAYER_RADIUS;
+      const screenRadius = colliderRadiusM * visScale * perspective * camera.scale;
+
+      // Project the top of the player's head to find the height on screen (uses hM)
+      const topPrj = project(p.px, p.py, hM);
       const screenHeight = Math.abs(prj.y - topPrj.y);
 
       // Shadow (at ground projection `prj.y`)
+
+      // Shadow (at ground projection `prj.y`)
       ctx.fillStyle = "rgba(0,0,0,0.25)";
-      ctx.beginPath(); ctx.ellipse(prj.x, prj.y, screenRadius, screenRadius * 0.5, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(prj.x, prj.y, screenRadius, screenRadius * 0.5, 0, 0, Math.PI * 2); ctx.fill(); drawCalls += 2;
 
       // The top of the cylinder should be "above" the shadow on screen (smaller Y value)
       const bodyY = prj.y - screenHeight;
@@ -381,18 +501,32 @@ async function run() {
       // Cylinder side (only if tall enough to be visible)
       if (screenHeight > 1) {
         ctx.fillStyle = home ? "#3a83dd" : "#dd4c4c"; // Darker side color
-        ctx.fillRect(prj.x - screenRadius, bodyY, screenRadius * 2, screenHeight);
+        ctx.fillRect(prj.x - screenRadius, bodyY, screenRadius * 2, screenHeight); drawCalls += 1;
       }
 
       // Body (top of the cylinder)
       ctx.fillStyle = home ? "#4aa3ff" : "#ff5c5c";
       ctx.strokeStyle = "#101419"; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.arc(prj.x, bodyY, screenRadius, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.arc(prj.x, bodyY, screenRadius, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); drawCalls += 2;
       
-      // Number dot
-      ctx.fillStyle = "#111"; ctx.beginPath(); ctx.arc(prj.x, bodyY, screenRadius * 0.3, 0, Math.PI * 2); ctx.fill();
-      
-      // Velocity vector (debug)
+      // Label (number or initials)
+      ctx.font = `${Math.max(10, screenRadius * 1.2).toFixed(0)}px ui-sans-serif, -apple-system, Segoe UI, Roboto`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = "#0b0c0d";
+      const label = (() => {
+        const s = staticData || {};
+        if (s.shirt_number != null) return String(s.shirt_number);
+        if (s.number != null) return String(s.number);
+        if (s.name) {
+          const parts = String(s.name).trim().split(/\s+/);
+          if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+          return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+        }
+        return String(idx + 1);
+      })();
+      ctx.fillText(label, prj.x, bodyY);
+// Velocity vector (debug)
       if (document.getElementById("dbg-vectors").checked) {
         const tip = project(p.px + v.x, p.py + v.y, 0);
         ctx.strokeStyle = "#fff"; ctx.lineWidth = 1;
@@ -421,7 +555,7 @@ async function run() {
     // Shadow (darker when higher)
     const alpha = Math.max(0.2, 1.0 - ball.z / 10.0);
     ctx.fillStyle = `rgba(0,0,0,${alpha.toFixed(2)})`;
-    ctx.beginPath(); ctx.ellipse(prjG.x, prjG.y, screenRadius, screenRadius * 0.5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(prjG.x, prjG.y, screenRadius, screenRadius * 0.5, 0, 0, Math.PI * 2); ctx.fill(); drawCalls += 2;
 
     const screenHeight = Math.abs(prjG.y - prj.y);
 
@@ -429,7 +563,7 @@ async function run() {
     if (screenHeight > 0.5) {
         ctx.fillStyle = "#d0d0d0";
         const topY = Math.min(prj.y, prjG.y);
-        ctx.fillRect(prj.x - screenRadius, topY, screenRadius * 2, screenHeight);
+        ctx.fillRect(prj.x - screenRadius, topY, screenRadius * 2, screenHeight); drawCalls += 1;
     }
 
     // Ball (top of the cylinder)
@@ -483,6 +617,8 @@ async function run() {
   }
 
   function render() {
+    const t0 = performance.now();
+    drawCalls = 0;
     // Clear and translate origin
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.save();
@@ -496,6 +632,7 @@ async function run() {
     // Decode snapshot and render entities
     const snapBytes = engine.snapshot();
     const data = decodeSnapshot(snapBytes);
+    lastSnapBytes = snapBytes.length;
     lastSnapshotData = data;
 
     // Ball trajectory trail (ground projection)
@@ -504,7 +641,7 @@ async function run() {
     if (trail.length > 120) trail.shift();
 
     // Draw players (sorted by ground depth)
-    drawPlayers(ctx, data.players);
+    drawPlayers(ctx, data.players, allPlayersData);
     // Draw ball + shadow + trail (optional)
     drawBall(ctx, data.ball);
     if (document.getElementById("dbg-trajectory").checked) drawTrail(ctx, trail);
@@ -513,6 +650,27 @@ async function run() {
     drawGoal(ctx, 'home');
 
     ctx.restore();
+    const t1 = performance.now();
+    lastRenderMs = t1 - t0;
+    // FPS from frame callback
+    const nowTs = performance.now();
+    const dt = nowTs - lastFrameTs;
+    const instFps = dt > 0 ? 1000 / dt : 0;
+    smoothedFps = smoothedFps ? (smoothedFps * 0.9 + instFps * 0.1) : instFps;
+    lastFrameTs = nowTs;
+
+    if (hud) {
+      const yawDeg = (camera.yaw / DEG).toFixed(1);
+      const pitchDeg = (camera.pitch / DEG).toFixed(1);
+      hud.textContent =
+`FPS   : ${smoothedFps.toFixed(1)}
+Render: ${lastRenderMs.toFixed(2)} ms
+Calls : ${drawCalls}
+Bytes : ${lastSnapBytes}
+Cam   : yaw ${yawDeg}°, pitch ${pitchDeg}°
+Players: ${lastSnapshotData ? lastSnapshotData.players.length : 0}`;
+    }
+
 
     const deltaBytes = engine.delta();
     output.textContent = `Tick: ${jsTick}\nSnapshot bytes: ${snapBytes.length}\nDelta bytes: ${deltaBytes.length}`;

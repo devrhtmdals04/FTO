@@ -7,7 +7,7 @@ pub mod commands;
 pub mod engine;
 pub mod params;
 pub mod physics;
-pub mod players;
+pub mod player_data;
 pub mod rng;
 pub mod rules;
 pub mod snapshot;
@@ -18,6 +18,7 @@ pub mod types;
 
 use crate::engine::Engine;
 use crate::snapshot::{DeltaBuffer, SnapshotBuffer};
+use serde_json;
 
 #[cfg(feature = "console_error_panic_hook")]
 fn set_panic_hook() {
@@ -60,5 +61,17 @@ impl WasmEngine {
 
     pub fn command(&mut self, cmd: JsValue) {
         self.inner.enqueue_command(cmd);
+    }
+
+    #[wasm_bindgen(js_name = getPlayerDataJson)]
+    pub fn get_player_data_json(&self) -> String {
+        let mut all_players = Vec::new();
+        for i in 0..11 {
+            all_players.push(crate::player_data::get_baseline_player(i, 0));
+        }
+        for i in 0..11 {
+            all_players.push(crate::player_data::get_baseline_player(i, 1));
+        }
+        serde_json::to_string(&all_players).unwrap_or_else(|_| "[]".to_string())
     }
 }

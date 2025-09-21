@@ -39,7 +39,7 @@ impl Engine {
         self.process_commands();
         self.update_ai();
         step_players(&mut self.world);
-        step_ball(&mut self.world);
+        step_ball(&mut self.world, &self.physics.spatial, &mut self._rng.as_mut());
         handle_restarts(&mut self.world);
         update_referee(&mut self.world);
         let _offside = check_offside(&self.world);

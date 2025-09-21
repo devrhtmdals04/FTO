@@ -126,15 +126,14 @@ impl Div<f32> for Vec2 {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Footedness {
-    Left,
-    Right,
-    Both,
+pub enum Foot {
+    L,
+    R,
 }
 
-impl Default for Footedness {
+impl Default for Foot {
     fn default() -> Self {
-        Footedness::Right
+        Foot::R
     }
 }
 
@@ -211,7 +210,7 @@ pub struct PlayerParams {
     pub a_max: f32,
     pub omega_max: f32,
     pub ctrl_radius: f32,
-    pub ctrl_angle: f32,
+    pub ctrl_angle_deg: f32,
     pub pass_err_sigma: f32,
     pub shot_err_sigma: f32,
     pub pass_speed_max: f32,
@@ -223,7 +222,24 @@ pub struct PlayerParams {
     pub intercept_react_ms: f32,
     pub weak_acc_mult: f32,
     pub weak_power_mult: f32,
-    pub foot: Footedness,
+    pub foot: Foot,
+    pub stamina_max: f32,
+    pub stamina_recovery: f32,
+    pub stamina_move_cost: f32,
+
+    // New params
+    pub height_m: f32,
+    pub mass_kg: f32,
+    pub bmi: f32,
+    pub aerial_ctrl_rad: f32,
+    pub jump_gain_m: f32,
+    pub heading_err_sigma_deg: f32,
+    pub heading_power_mult: f32,
+    pub jump_fatigue_floor: f32,
+    pub vis_scale: f32,
+    pub collider_radius_opt: f32,
+    pub heading: u8,
+    pub strength: u8,
 }
 
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]

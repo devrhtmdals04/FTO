@@ -94,6 +94,8 @@ pub struct QuantizedPlayer {
     pub pos: [i16; 2],
     pub vel: [i16; 2],
     pub stamina: u16,
+    pub vis_scale: u8,
+    pub collider_radius_opt: i16,
 }
 
 #[derive(Clone)]
@@ -177,6 +179,8 @@ pub fn write_delta(prev: &QuantizedWorld, curr: &QuantizedWorld, buf: &mut Delta
         buf.write_i16(player.vel[0]);
         buf.write_i16(player.vel[1]);
         buf.write_u16(player.stamina);
+        buf.write_u8(player.vis_scale);
+        buf.write_i16(player.collider_radius_opt);
     }
 }
 
@@ -198,8 +202,11 @@ pub fn quantize_world(world: &World) -> QuantizedWorld {
         pos: [0, 0],
         vel: [0, 0],
         stamina: 0,
+        vis_scale: 0,
+        collider_radius_opt: 0,
     }; N_PLAYERS];
     for idx in 0..N_PLAYERS {
+        let params = world.p_params[idx];
         players[idx] = QuantizedPlayer {
             pos: [
                 quantize(world.px[idx], SNAPSHOT_POS_SCALE),
@@ -210,6 +217,8 @@ pub fn quantize_world(world: &World) -> QuantizedWorld {
                 quantize(world.pvy[idx], SNAPSHOT_VEL_SCALE),
             ],
             stamina: (world.pstamina[idx].clamp(0.0, 1.0) * 1000.0).round() as u16,
+            vis_scale: ((params.vis_scale - 0.90) / 0.25 * 255.0).round().clamp(0.0, 255.0) as u8,
+            collider_radius_opt: (params.collider_radius_opt * 1000.0).round() as i16,
         };
     }
     QuantizedWorld {
@@ -244,6 +253,8 @@ fn serialize_full(world: &QuantizedWorld, buf: &mut SnapshotBuffer) {
         buf.write_i16(player.vel[0]);
         buf.write_i16(player.vel[1]);
         buf.write_u16(player.stamina);
+        buf.write_u8(player.vis_scale);
+        buf.write_i16(player.collider_radius_opt);
     }
 }
 
