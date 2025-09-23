@@ -28,7 +28,7 @@ impl Engine {
             last_hash: [0; 32],
             last_quantized: None,
         };
-        engine.update_hash();
+        engine.update_hash(); // Re-enabled
         engine
     }
 

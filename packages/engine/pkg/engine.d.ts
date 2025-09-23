@@ -8,7 +8,7 @@ export class WasmEngine {
   delta(): Uint8Array;
   command(cmd: any): void;
   getPlayerDataJson(): string;
-  view_copy(buffer: Uint8Array): number;
+  view_copy(ptr_out: number, max_len: number): number;
 }
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
@@ -22,7 +22,7 @@ export interface InitOutput {
   readonly wasmengine_delta: (a: number) => [number, number];
   readonly wasmengine_command: (a: number, b: any) => void;
   readonly wasmengine_getPlayerDataJson: (a: number) => [number, number];
-  readonly wasmengine_view_copy: (a: number, b: number, c: number, d: any) => number;
+  readonly wasmengine_view_copy: (a: number, b: number, c: number) => number;
   readonly __wbindgen_malloc: (a: number, b: number) => number;
   readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
   readonly __wbindgen_exn_store: (a: number) => void;
