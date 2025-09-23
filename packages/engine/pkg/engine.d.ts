@@ -4,7 +4,7 @@ export class WasmEngine {
   free(): void;
   constructor(seed: bigint);
   tick(): void;
-  snapshot(): Uint8Array;
+  getSnapshotJson(): string;
   delta(): Uint8Array;
   command(cmd: any): void;
   getPlayerDataJson(): string;
@@ -17,7 +17,7 @@ export interface InitOutput {
   readonly __wbg_wasmengine_free: (a: number, b: number) => void;
   readonly wasmengine_new: (a: bigint) => number;
   readonly wasmengine_tick: (a: number) => void;
-  readonly wasmengine_snapshot: (a: number) => [number, number];
+  readonly wasmengine_getSnapshotJson: (a: number) => [number, number];
   readonly wasmengine_delta: (a: number) => [number, number];
   readonly wasmengine_command: (a: number, b: any) => void;
   readonly wasmengine_getPlayerDataJson: (a: number) => [number, number];

@@ -36,6 +36,7 @@ pub struct PlayerInput20 {
 }
 
 #[repr(C)]
+#[derive(Clone, Serialize)]
 pub struct World {
     pub tick: u32,
     pub ms: u32,

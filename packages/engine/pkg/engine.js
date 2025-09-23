@@ -214,13 +214,19 @@ export class WasmEngine {
         wasm.wasmengine_tick(this.__wbg_ptr);
     }
     /**
-     * @returns {Uint8Array}
+     * @returns {string}
      */
-    snapshot() {
-        const ret = wasm.wasmengine_snapshot(this.__wbg_ptr);
-        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
-        return v1;
+    getSnapshotJson() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.wasmengine_getSnapshotJson(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
     }
     /**
      * @returns {Uint8Array}

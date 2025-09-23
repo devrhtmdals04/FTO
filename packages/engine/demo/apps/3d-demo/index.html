@@ -1,0 +1,38 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>FTO 3D Demo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    html, body, #app { margin:0; padding:0; width:100%; height:100%; background:#0b0f12; }
+    canvas#fto3d { width:100%; height:100%; display:block; }
+    .hud { position:fixed; top:12px; left:12px; color:#cfe3ff; font:14px/1.4 ui-sans-serif, system-ui, -apple-system; }
+    .hud code { padding:2px 6px; background:#101820; border-radius:6px; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <canvas id="fto3d"></canvas>
+    <div class="hud">FTO 3D Demo — <code>apps/3d-demo/src/bootstrap3d.js</code></div>
+  </div>
+  <script type="module">
+    import init, { WasmEngine } from '../../../pkg/engine.js'; // Import WasmEngine directly
+    init().then((wasmExports) => {
+      console.log("WASM engine initialized.");
+
+      // Create an instance of WasmEngine
+      const wasmEngineInstance = new WasmEngine(0n); // Pass BigInt for seed
+
+      // Attach WASM exports to window.engine so EngineBridge can find them
+      window.engine = {
+        // Bind the snapshot method to the instance
+        snapshot: () => wasmEngineInstance.getSnapshotJson(),
+      };
+    }).catch(e => {
+      console.error("Failed to initialize WASM engine:", e);
+    });
+  </script>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

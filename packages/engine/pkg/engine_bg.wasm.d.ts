@@ -4,7 +4,7 @@ export const memory: WebAssembly.Memory;
 export const __wbg_wasmengine_free: (a: number, b: number) => void;
 export const wasmengine_new: (a: bigint) => number;
 export const wasmengine_tick: (a: number) => void;
-export const wasmengine_snapshot: (a: number) => [number, number];
+export const wasmengine_getSnapshotJson: (a: number) => [number, number];
 export const wasmengine_delta: (a: number) => [number, number];
 export const wasmengine_command: (a: number, b: any) => void;
 export const wasmengine_getPlayerDataJson: (a: number) => [number, number];

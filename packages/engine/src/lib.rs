@@ -47,10 +47,9 @@ impl WasmEngine {
         self.inner.tick();
     }
 
-    pub fn snapshot(&mut self) -> Vec<u8> {
-        let mut buf = SnapshotBuffer::default();
-        self.inner.write_snapshot(&mut buf);
-        buf.into_bytes()
+    #[wasm_bindgen(js_name = getSnapshotJson)]
+    pub fn get_snapshot_json(&mut self) -> String {
+        serde_json::to_string(&self.inner.world).unwrap_or_else(|_| "{}".to_string())
     }
 
     pub fn delta(&mut self) -> Vec<u8> {
