@@ -115,7 +115,12 @@ function frame(){
 
 // --- Keyboard Controls for Camera ---
 const keyboardState: { [key: string]: boolean } = {};
-window.addEventListener('keydown', (event) => { keyboardState[event.code] = true; });
+window.addEventListener('keydown', (event) => { 
+    keyboardState[event.code] = true; 
+    if (event.code === 'KeyP') {
+        players.toggleDebugMode();
+    }
+});
 window.addEventListener('keyup', (event) => { keyboardState[event.code] = false; });
 
 const cameraMoveSpeed = 1.0;

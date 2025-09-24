@@ -1,11 +1,12 @@
 import * as THREE from "three";
 import { PlayerView, AnimEvent } from "../state";
-import { loadPlayerTemplate, spawnPlayer, setTeamColor, applyTransform, PlayerInstance } from "./player_glb";
+import { loadPlayerTemplate, spawnPlayer, setTeamColor, applyTransform, PlayerInstance, updateDebugText } from "./player_glb";
 import { AnimCtrl } from "./anim_ctrl";
 
 export class PlayerSystem {
   group = new THREE.Group();
   ready = false;
+  debugMode = false;
 
   inst: PlayerInstance[] = [];
   ctrl: AnimCtrl[] = [];
@@ -33,6 +34,26 @@ export class PlayerSystem {
     }
   }
 
+  toggleDebugMode() {
+      this.debugMode = !this.debugMode;
+      console.log(`[Debug] Toggling debug mode: ${this.debugMode}`);
+
+      for (const p of this.inst) {
+          // First child is the main GLB model
+          const model = p.root.children[0];
+          if (model) {
+              model.visible = !this.debugMode;
+          }
+
+          if (p.debugMesh) {
+              p.debugMesh.visible = this.debugMode;
+          }
+          if (p.debugText) {
+              p.debugText.visible = this.debugMode;
+          }
+      }
+  }
+
   // view: 보간된 PlayerView[], dt: 초
   update(view: PlayerView[], dt: number) {
     if (!this.ready) return;
@@ -46,6 +67,11 @@ export class PlayerSystem {
       pp.copy(cp); cp.set(v.x, v.y);
       const speed = (pp.x===0 && pp.y===0) ? 0 : cp.distanceTo(pp) / Math.max(dt, 1e-6);
       c.setLocomotionBySpeed(speed);
+
+      if (this.debugMode) {
+          const actionName = c.getCurrentActionName();
+          updateDebugText(p, actionName);
+      }
 
       p.mixer.update(dt);
     }

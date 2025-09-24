@@ -56,4 +56,36 @@ export class AnimCtrl {
     if (!a) return;
     if (a.getEffectiveWeight() > 0.01) a.fadeOut(0.05);
   }
+
+  getCurrentActionName(): string {
+    // 1. Check for one-shot actions
+    for (const [name, action] of Object.entries(this.act)) {
+      if (action && action.getEffectiveWeight() > 0.1) {
+        return name.toUpperCase();
+      }
+    }
+
+    // 2. Determine dominant locomotion state
+    let maxWeight = 0;
+    let currentLocoAction = 'IDLE';
+
+    const idleWeight = this.base.idle?.getEffectiveWeight() ?? 0;
+    if (idleWeight > maxWeight) {
+      maxWeight = idleWeight;
+      currentLocoAction = 'IDLE';
+    }
+
+    const walkWeight = this.base.walk?.getEffectiveWeight() ?? 0;
+    if (walkWeight > maxWeight) {
+      maxWeight = walkWeight;
+      currentLocoAction = 'WALK';
+    }
+
+    const runWeight = this.base.run?.getEffectiveWeight() ?? 0;
+    if (runWeight > maxWeight) {
+      currentLocoAction = 'RUN';
+    }
+    
+    return currentLocoAction;
+  }
 }
