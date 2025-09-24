@@ -13,7 +13,10 @@ export class PlayerSystem {
   curr = new Array(22).fill(null).map(()=>new THREE.Vector2());
 
   async init() {
-    const { template, clips } = await loadPlayerTemplate("/assets/player.glb");
+    console.log("PlayerSystem.init() called."); // Keep this log
+
+    const { template, clips } = await loadPlayerTemplate("/assets/player_alt.glb");
+
     for (let i=0;i<22;i++){
       const p = spawnPlayer(template, clips, i<11 ? 0 : 1);
       this.inst.push(p);

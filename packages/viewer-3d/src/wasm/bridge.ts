@@ -9,11 +9,12 @@ const PLAYER_VIEW_SIZE = 32; // x,y,hx,hy,vis,vis_y,vis_xz (7*f32) + team (u8) +
 const N_PLAYERS = 22;
 const SIM_VIEW_SIZE = 4 + 4 + 12 + (N_PLAYERS * PLAYER_VIEW_SIZE); // version+padding (4) + tick (4) + ball (12) + players (22*32)
 
-function parseSimView(ptr: number, len: number, memory: WebAssembly.Memory): SimView {
-  if (len < SIM_VIEW_SIZE) {
-    throw new Error(`view_copy len ${len} < expected ${SIM_VIEW_SIZE}`);
+
+function parseSimView(viewData: Uint8Array): SimView {
+  if (viewData.length < SIM_VIEW_SIZE) {
+    throw new Error(`view data length ${viewData.length} < expected ${SIM_VIEW_SIZE}`);
   }
-  const dv = new DataView(memory.buffer, ptr, len);
+  const dv = new DataView(viewData.buffer, viewData.byteOffset, viewData.byteLength);
 
   let off = 0;
 
@@ -70,23 +71,12 @@ export function createEngineBridge() {
   let engine: WasmEngine;
   let lastTick = 0;
 
-  // @ts-ignore (wasm JS glue가 메모리 export함)
-  let memory: WebAssembly.Memory;
-  let scratchPtr: number;
-  let scratchCap: number;
-
-  const init = async () => {
+  const initFn = async () => {
     try {
-      const wasm = await initWasm();
-      // @ts-ignore
-      memory = wasm.memory; // wasm-bindgen glue가 export한 memory
+      //console.log("initWasm:", initWasm);
+      //console.log("WasmEngine:", WasmEngine);
+      await initWasm();
       engine = new WasmEngine(BigInt(42)); // seed 예시
-
-      // Allocate scratch buffer in WASM memory
-      // __wbindgen_malloc is internal, but used for performance here
-      scratchPtr = (wasm as any).__wbindgen_malloc(SIM_VIEW_SIZE);
-      scratchCap = SIM_VIEW_SIZE;
-
       ready = true;
       console.log("WASM Engine initialized successfully.");
     } catch (e) {
@@ -95,7 +85,7 @@ export function createEngineBridge() {
   };
 
   // 즉시 kick
-  if (!ready) { void init(); }
+  if (!ready) { void initFn(); }
 
   // 반환: 호출 시 SimView 한 프레임
   return (): SimView => {
@@ -108,15 +98,15 @@ export function createEngineBridge() {
     // 고정틱
     engine.tick();
 
-    const bytesWritten = engine.view_copy(scratchPtr, scratchCap);
-    if (bytesWritten === 0) {
+    const viewData = engine.view();
+    if (viewData.length === 0) {
         // 버퍼가 너무 작거나 다른 에러
         return { tick: lastTick, ball: {x:0,y:0,z:0}, players: Array.from({length:22},(_,i)=>( 
             {x:0,y:0,h:[1,0],vis:1,team:(i<11?0:1)} as PlayerView
         )) };
     }
 
-    const simView = parseSimView(scratchPtr, bytesWritten, memory);
+    const simView = parseSimView(viewData);
     lastTick = simView.tick;
     return simView;
   };

@@ -1,10 +1,15 @@
-import { defineConfig } from 'vite'
+import { defineConfig } from "vite";
+import wasm from "vite-plugin-wasm";
+import topLevelAwait from "vite-plugin-top-level-await";
 
 export default defineConfig({
+  plugins: [wasm(), topLevelAwait()],
   server: {
     fs: {
-      // Allow serving files from the project root
-      allow: ['../..']
-    }
-  }
-})
+      allow: [
+        '../../packages/engine/pkg',
+        '../../packages/viewer-3d',
+      ],
+    },
+  },
+});

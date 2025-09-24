@@ -20,7 +20,7 @@ export interface PlayerInstance {
   materials: THREE.MeshStandardMaterial[]; // 틴팅 대상 캐시
 }
 
-export async function loadPlayerTemplate(url="/assets/player.glb") {
+export async function loadPlayerTemplate(url="/assets/player_alt.glb") {
   const loader = new GLTFLoader();
   const gltf = await loader.loadAsync(url);
 
@@ -35,8 +35,12 @@ export async function loadPlayerTemplate(url="/assets/player.glb") {
         (newMat as any).skinning = (m as any).isSkinnedMesh === true;
         m.material = newMat;
       }
-    }
+    } 
   });
+
+  // Add BoxHelper to the template for debugging
+  const boxHelper = new THREE.BoxHelper(template, 0xffff00); // Yellow box
+  template.add(boxHelper);
 
   // 클립 이름 매핑
   const clips: ClipSet = {};
@@ -57,6 +61,12 @@ export async function loadPlayerTemplate(url="/assets/player.glb") {
 export function spawnPlayer(template: THREE.Object3D, clips: ClipSet, team: 0|1): PlayerInstance {
   const root = template.clone(true);
   const mixer = new THREE.AnimationMixer(root);
+
+  // Add AxesHelper for debugging
+  const axesHelper = new THREE.AxesHelper(5); // Size 5 for visibility
+  root.add(axesHelper);
+
+  console.log(`Spawned player root:`, root); // Re-add this log
 
   // 틴팅 대상(상의/저지로 추정되는 메쉬) — 이름 규칙은 파일에 맞춰 보정 가능
   const materials: THREE.MeshStandardMaterial[] = [];
@@ -97,4 +107,6 @@ export function applyTransform(p: PlayerInstance, view: PlayerView) {
   p.root.position.set(view.x, 0, view.y);
   p.root.rotation.set(0, yaw, 0);
   p.root.scale.set(xz, y, xz);
+
+  //console.log(`Player ${p.root.name || p.root.uuid} position: (${view.x}, ${view.y})`); // Add this line
 }

@@ -253,13 +253,13 @@ export class WasmEngine {
         }
     }
     /**
-     * @param {number} ptr_out
-     * @param {number} max_len
-     * @returns {number}
+     * @returns {Uint8Array}
      */
-    view_copy(ptr_out, max_len) {
-        const ret = wasm.wasmengine_view_copy(this.__wbg_ptr, ptr_out, max_len);
-        return ret >>> 0;
+    view() {
+        const ret = wasm.wasmengine_view(this.__wbg_ptr);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
     }
 }
 

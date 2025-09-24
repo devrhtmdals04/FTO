@@ -94,59 +94,48 @@ impl WasmEngine {
     }
 
     #[wasm_bindgen]
-    pub fn view_copy(&self, ptr_out: *mut u8, max_len: usize) -> usize {
+    pub fn view(&self) -> Vec<u8> {
         let world = &self.inner.world;
-        let mut cursor = 0;
+        let mut buffer = Vec::with_capacity(724);
 
-        let write_u8 = |ptr: *mut u8, val: u8, at: &mut usize| unsafe {
-            if *at < max_len {
-                *ptr.add(*at) = val;
-                *at += 1;
-            }
+        let write_u8 = |buf: &mut Vec<u8>, val: u8| {
+            buf.push(val);
         };
-        let write_u32 = |ptr: *mut u8, val: u32, at: &mut usize| unsafe {
-            let bytes = val.to_le_bytes();
-            if *at + bytes.len() <= max_len {
-                std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr.add(*at), bytes.len());
-                *at += bytes.len();
-            }
+        let write_u32 = |buf: &mut Vec<u8>, val: u32| {
+            buf.extend_from_slice(&val.to_le_bytes());
         };
-        let write_f32 = |ptr: *mut u8, val: f32, at: &mut usize| unsafe {
-            let bytes = val.to_le_bytes();
-            if *at + bytes.len() <= max_len {
-                std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr.add(*at), bytes.len());
-                *at += bytes.len();
-            }
+        let write_f32 = |buf: &mut Vec<u8>, val: f32| {
+            buf.extend_from_slice(&val.to_le_bytes());
         };
 
         // Version
-        write_u8(ptr_out, VIEW_VERSION, &mut cursor);
-        cursor += 3; // Padding to align to 4 bytes
+        write_u8(&mut buffer, VIEW_VERSION);
+        buffer.extend_from_slice(&[0, 0, 0]); // Padding
 
         // Tick
-        write_u32(ptr_out, world.tick, &mut cursor);
+        write_u32(&mut buffer, world.tick);
 
         // Ball
-        write_f32(ptr_out, world.bx, &mut cursor);
-        write_f32(ptr_out, world.by, &mut cursor);
-        write_f32(ptr_out, world.bz, &mut cursor);
+        write_f32(&mut buffer, world.bx);
+        write_f32(&mut buffer, world.by);
+        write_f32(&mut buffer, world.bz);
 
         // Players
         for i in 0..N_PLAYERS {
             let params = &world.p_params[i];
             let (vis_y, vis_xz) = vis_from_params(params.height_m, params.bmi);
 
-            write_f32(ptr_out, world.px[i], &mut cursor); // x
-            write_f32(ptr_out, world.py[i], &mut cursor); // y
-            write_f32(ptr_out, world.pfacing[i].cos(), &mut cursor); // hx
-            write_f32(ptr_out, world.pfacing[i].sin(), &mut cursor); // hy
-            write_f32(ptr_out, params.vis_scale, &mut cursor); // vis (legacy)
-            write_f32(ptr_out, vis_y, &mut cursor); // vis_y
-            write_f32(ptr_out, vis_xz, &mut cursor); // vis_xz
-            write_u8(ptr_out, world.p_team[i], &mut cursor); // team
-            cursor += 3; // Padding
+            write_f32(&mut buffer, world.px[i]); // x
+            write_f32(&mut buffer, world.py[i]); // y
+            write_f32(&mut buffer, world.pfacing[i].cos()); // hx
+            write_f32(&mut buffer, world.pfacing[i].sin()); // hy
+            write_f32(&mut buffer, params.vis_scale); // vis (legacy)
+            write_f32(&mut buffer, vis_y); // vis_y
+            write_f32(&mut buffer, vis_xz); // vis_xz
+            write_u8(&mut buffer, world.p_team[i]); // team
+            buffer.extend_from_slice(&[0, 0, 0]); // Padding
         }
 
-        cursor
+        buffer
     }
 }
