@@ -1,6 +1,4 @@
-use crate::params::{
-    DT, E_Z, G, MU_AIR, MU_BOUNCE, MU_GROUND, PITCH_H, PITCH_W, VZ_MIN,
-};
+use crate::params::{DT, E_Z, G, MU_AIR, MU_BOUNCE, MU_GROUND, PITCH_H, PITCH_W, VZ_MIN};
 use crate::physics::collisions::reflect;
 use crate::spatial::SpatialHash;
 use crate::state::{World, N_PLAYERS};
@@ -72,7 +70,7 @@ fn gaussian0_mean_sigma(sigma: f32, rng: &mut Pcg32) -> f32 {
     if sigma <= 0.0 {
         return 0.0;
     }
-    let u1: f32 = rng.gen();
+    let u1: f32 = rng.gen::<f32>().max(std::f32::EPSILON);
     let u2: f32 = rng.gen();
     let z0 = (-2.0 * u1.ln()).sqrt() * (2.0 * std::f32::consts::PI * u2).cos();
     z0 * sigma
@@ -80,7 +78,11 @@ fn gaussian0_mean_sigma(sigma: f32, rng: &mut Pcg32) -> f32 {
 
 fn choose_dir(world: &World, pid: usize) -> Vec2 {
     let team_id = world.p_team[pid];
-    let goal_x = if team_id == 0 { PITCH_W / 2.0 } else { -PITCH_W / 2.0 };
+    let goal_x = if team_id == 0 {
+        PITCH_W / 2.0
+    } else {
+        -PITCH_W / 2.0
+    };
     let goal_pos = Vec2::new(goal_x, 0.0);
     let player_pos = world.player_pos(pid);
     (goal_pos - player_pos).normalize()
@@ -112,8 +114,7 @@ pub fn aerial_interactions(world: &mut World, _grid: &SpatialHash, rng: &mut Pcg
             let dist_xy = player_pos.distance(ball_pos);
 
             if dist_xy < params.aerial_ctrl_rad {
-                let score = 0.8 * (head_reach_m - ball_z)
-                    - 0.5 * dist_xy
+                let score = 0.8 * (head_reach_m - ball_z) - 0.5 * dist_xy
                     + 0.02 * (params.heading as f32)
                     + 0.02 * (params.strength as f32);
 

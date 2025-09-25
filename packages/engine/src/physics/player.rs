@@ -70,7 +70,8 @@ fn update_stamina(world: &mut World, idx: usize, speed: f32, params: crate::type
 
         let stamina_change = (recovery_per_second - cost_per_second) * DT;
         let current_stamina_points = world.pstamina[idx] * params.stamina_max;
-        let new_stamina_points = (current_stamina_points + stamina_change).clamp(0.0, params.stamina_max);
+        let new_stamina_points =
+            (current_stamina_points + stamina_change).clamp(0.0, params.stamina_max);
 
         world.pstamina[idx] = new_stamina_points / params.stamina_max;
     }

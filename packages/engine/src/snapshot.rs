@@ -5,6 +5,8 @@ use crate::params::{SNAPSHOT_POS_SCALE, SNAPSHOT_VEL_SCALE};
 use crate::state::{World, N_PLAYERS};
 use crate::types::MatchPhase;
 
+pub const SNAPSHOT_VERSION: u8 = 1;
+
 #[derive(Default)]
 pub struct SnapshotBuffer {
     bytes: Vec<u8>,
@@ -75,6 +77,7 @@ impl DeltaBuffer {
 pub struct QuantizedWorld {
     pub tick: u32,
     pub ms: u32,
+    pub ms_subtick: u16,
     pub match_phase: u8,
     pub home_score: u16,
     pub away_score: u16,
@@ -127,13 +130,18 @@ impl Default for HashGuard {
 
 pub fn write_full_snapshot(world: &World, buf: &mut SnapshotBuffer) -> QuantizedWorld {
     let quantized = quantize_world(world);
+    buf.write_u8(SNAPSHOT_VERSION);
+    buf.write(&[0, 0, 0]);
     serialize_full(&quantized, buf);
     quantized
 }
 
 pub fn write_delta(prev: &QuantizedWorld, curr: &QuantizedWorld, buf: &mut DeltaBuffer) {
+    buf.write_u8(SNAPSHOT_VERSION);
+    buf.write(&[0, 0, 0]);
     buf.write_u32(curr.tick);
     buf.write_u32(curr.ms);
+    buf.write_u16(curr.ms_subtick);
     buf.write_u8(curr.match_phase);
     buf.write_u16(curr.home_score);
     buf.write_u16(curr.away_score);
@@ -166,7 +174,9 @@ pub fn write_delta(prev: &QuantizedWorld, curr: &QuantizedWorld, buf: &mut Delta
     }
 
     let mut changed_players = Vec::new();
-    for (idx, (prev_player, curr_player)) in prev.players.iter().zip(curr.players.iter()).enumerate() {
+    for (idx, (prev_player, curr_player)) in
+        prev.players.iter().zip(curr.players.iter()).enumerate()
+    {
         if prev_player != curr_player {
             changed_players.push((idx as u8, *curr_player));
         }
@@ -217,13 +227,16 @@ pub fn quantize_world(world: &World) -> QuantizedWorld {
                 quantize(world.pvy[idx], SNAPSHOT_VEL_SCALE),
             ],
             stamina: (world.pstamina[idx].clamp(0.0, 1.0) * 1000.0).round() as u16,
-            vis_scale: ((params.vis_scale - 0.90) / 0.25 * 255.0).round().clamp(0.0, 255.0) as u8,
+            vis_scale: ((params.vis_scale - 0.90) / 0.25 * 255.0)
+                .round()
+                .clamp(0.0, 255.0) as u8,
             collider_radius_opt: (params.collider_radius_opt * 1000.0).round() as i16,
         };
     }
     QuantizedWorld {
         tick: world.tick,
         ms: world.ms,
+        ms_subtick: world.ms_subtick as u16,
         match_phase: match_phase_to_u8(world.match_phase),
         home_score: world.home_score,
         away_score: world.away_score,
@@ -235,6 +248,7 @@ pub fn quantize_world(world: &World) -> QuantizedWorld {
 fn serialize_full(world: &QuantizedWorld, buf: &mut SnapshotBuffer) {
     buf.write_u32(world.tick);
     buf.write_u32(world.ms);
+    buf.write_u16(world.ms_subtick);
     buf.write_u8(world.match_phase);
     buf.write_u16(world.home_score);
     buf.write_u16(world.away_score);

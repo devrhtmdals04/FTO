@@ -16,7 +16,7 @@ export interface BallView {
 }
 
 export interface SimView {
-  tick: number;           // engine tick (20Hz)
+  tick: number;           // engine tick (60Hz physics)
   ball: BallView;
   players: PlayerView[];  // length 22
 }

@@ -29,6 +29,14 @@ impl TeamId {
     pub fn all() -> [TeamId; 2] {
         [TeamId::Home, TeamId::Away]
     }
+
+    pub fn from_index(idx: u8) -> Option<TeamId> {
+        match idx {
+            0 => Some(TeamId::Home),
+            1 => Some(TeamId::Away),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -195,6 +203,17 @@ pub enum PlayerRole {
 impl Default for PlayerRole {
     fn default() -> Self {
         PlayerRole::Midfielder
+    }
+}
+
+impl PlayerRole {
+    pub fn as_u8(self) -> u8 {
+        match self {
+            PlayerRole::Goalkeeper => 0,
+            PlayerRole::Defender => 1,
+            PlayerRole::Midfielder => 2,
+            PlayerRole::Forward => 3,
+        }
     }
 }
 

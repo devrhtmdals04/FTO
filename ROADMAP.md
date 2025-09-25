@@ -1,370 +1,219 @@
-# CODEx 실행지시서 v1 — 11v11 축구 엔진(WASM/P2P)
+# 1v1 감독 전술 시뮬레이터 — Roadmap
 
-> 목표: **브라우저 2D 탑다운**, **20Hz 고정틱**, **P2P(호스트 권위)** 기준의 결정론 엔진을 Rust→WASM로 구현.
-> 본 지시서는 **명령어 / 파일 생성 / 함수 시그니처 / DoD** 중심으로 작성됨. 상위 레포 구조는 모노레포(pnpm+turbo) 가정이나, 단일 패키지로도 수행 가능.
+> Tech: **Rust + WASM + TypeScript (Web)**
+> Scope: 11v11, 실시간 전술 조정(1v1), 결정론적 시뮬레이션, 리플레이/분석, 오프라인·온라인 지원
 
 ---
 
-## 0) 사전 요구사항
+## 목표
 
-* Node ≥ 20, pnpm ≥ 9, Rust stable, wasm32-unknown-unknown 타깃
-* 브라우저: Chrome/Edge 최신
+* 사용자가 **실시간 전술**(슬라이더·프리셋·개인지시)을 조정하면, 엔진이 이를 **파생 파라미터→행동**으로 매 틱 반영한다.
+* **결정론**(same input+seed → same outcome), **락스텝 네트코드**, **리플레이 완전재현**을 달성한다.
+* 분석 툴(xG/PPDA/라인·폭 타임시리즈)과 세트피스 에디터까지 제공한다.
 
-**검증 명령**
+---
+
+## Now (M0–M2) — 코어 안정화
+
+### M0. 코어 루프·결정론·디버깅
+
+* [x] 고정 `fixed_dt`(60Hz) + 렌더 보간 루프
+* [ ] RNG 시드 고정 및 float 정규화(핵심 경로 fixed/f16 스냅)
+* [ ] **스냅샷 v1**: `version|tick|ball|players[]` (전/후방 호환 규칙 문서화)
+* [ ] **리플레이 v1**: `seed + input_ops`만 저장 (완전 재현)
+* [ ] 디버그 오버레이: 라인/폭/압박반경, 네비 경로, 충돌 AABB
+* [ ] 골든 리플레이 해시 비교(CI 스크립트)
+
+### M1. 액션 셋(개인 스킬) 구축
+
+* [ ] 볼 없는: 스프린트/침투·지연/마킹/커버/압박/조키
+* [ ] 볼 소유: 패스(그라운드/스로우/크로스)/원투/드리블/슛/홀드업
+* [ ] 수비: 인터셉트/스탠딩·슬라이딩 태클/몸싸움
+* [ ] GK: 기본 세이브/펀칭·캐칭/빌드업(롤·킥)
+* [ ] FSM + 유틸리티(소프트맥스/ε-greedy)로 행동 선택
+* [x] 기본 액션 루프(드리블/패스/슛/태클) 및 WASM 커맨드 브리지 연결
+
+### M2. 전술 파이프라인 v1
+
+* [ ] 전술 스키마(멘탈리티/템포/폭/라인/엔게이지/압박/패스리스크…)
+* [ ] 파생 파라미터 계산: 라인·폭·압박반경·쿨다운·스태미너 배수·지연
+* [ ] 팀/개인 **Phase FSM**: `In / Transition / Out` (전환 오버라이드)
+* [ ] 플레이북 2종: High Press Trap, Left Overlap (트리거·목표·종료)
+* [ ] TS↔WASM 브리지: `set_tactics(op)` / `get_snapshot()` 적용
+
+---
+
+## Next (M3–M7) — 기능 확장·게임화
+
+### M3. 경기 룰·심판·흐름
+
+* [ ] 재시작: 킥오프/스로인/골킥/코너/프리킥
+* [ ] 파울/어드밴티지/카드/오프사이드 엔진
+* [ ] 전반/후반/추가시간, 일시정지/빠른진행, 교체 슬롯
+
+### M4. 인지·공간·경로
+
+* [ ] 영향지도 v1(격자): 우리/상대 도달시간, 위험/가치 히트맵
+* [ ] 패스 평가식: 레인 개방도·수신각·거리·인터셉트 확률·후속 xG 근사
+* [ ] 경로 탐색: navmesh 또는 균질그리드 + steering, spatial hash
+
+### M5. 피지컬·컨디션
+
+* [ ] 스태미너: 템포/압박 연동 소모, 저스태미너 페널티(가속/판단딜레이)
+* [ ] 부상(옵션): 과격 태클/피로 누적, 경미/교체 필요 등급
+* [ ] 환경(옵션): 날씨·피치 마찰/반발 보정
+
+### M6. 전술·UI 확장
+
+* [ ] 프리셋: 로우블록/미드블록/하이프레스/역습/지공 (핫키 1–5)
+* [ ] 개인지시 라딜: "침투↑/넓게/타이트마킹/홀드업/컷인"
+* [ ] HUD: PPDA, 압박성공률, 터치맵, 간이 xG/xT, 전술 변경 로그
+
+### M7. 감독 AI/난이도
+
+* [ ] 감독 AI: 점수·시간·스태미너 기반 전술 전환 스크립트
+* [ ] 난이도: 반응 지연·리스크·플레이북 레퍼토리 차등
+* [ ] 학습 훅(선택): 상태/보상 로그 내보내기(RL 연동)
+
+---
+
+## Later (M8–M11) — 멀티·분석·운영
+
+### M8. 네트워킹(1v1)
+
+* [ ] 락스텝: `TacticOp(tick=N+k)`만 동기, 결정론 로컬 재현
+* [ ] 지연 보정: `k = ceil(RTT_ticks)+safety`, 틱 드리프트 감시
+* [ ] 검증/안티치트: 호스트 룰·충돌 검증, 리플레이 합의 해시
+
+### M9. 리플레이/분석 툴
+
+* [ ] 플레이어블 리플레이: 프리/방송 카메라, 슬로모, 이벤트 점프
+* [ ] 스카우트 뷰: 라인·간격·폭 타임시리즈, 압박 맵 애니메이션
+* [ ] 세션 비교 대시보드: 전술 프리셋별 KPI(승률/xG/PPDA/턴오버 구역)
+
+### M10. 에디터·콘텐츠 파이프라인
+
+* [ ] 팀/선수 스키마(JSON, 버전드): 능력치/역할 프로파일
+* [ ] 포메이션/플레이북 JSON 핫리로드, 검증기
+* [ ] 모딩 포인트: 자산 폴더, 커스텀 플레이북 로딩
+
+### M11. 품질·성능·출시 체크
+
+* [ ] 성능 목표: 60Hz 시뮬/60FPS 렌더, 메인틱 ≤ 4ms(PC), WASM ≤ 64–128MB
+* [ ] 프로파일링: hot path(선수×선수 O(N²) 회피), 공간분할
+* [ ] 테스트: 골든 리플레이/룰 프로퍼티/경계값 퍼지/장시간 soak
+
+---
+
+## 12주 스프린트 플랜(샘플)
+
+| 주차   | 마일스톤   | Exit 기준                          |
+| ---- | ------ | -------------------------------- |
+| W1–2 | M0, M1 | 동일 시드 리플레이 해시 일치, 패스/슛/드리블/태클 시연 |
+| W3–4 | M2     | 하이프레스 vs 로우블록 A/B, 행동 분포 변화      |
+| W5–6 | M3     | 오프사이드/파울/재시작 프로퍼티 테스트 통과         |
+| W7–8 | M4–M5  | 템포·압박 ↔ 체력·성공률 상관 확인             |
+| W9   | M6     | 프리셋 핫키/라딜 지시 실전 반영               |
+| W10  | M7     | 무입력 경기 난이도 곡선 안정                 |
+| W11  | M8     | 100경기 무 desync, 딜레이 설정 적용        |
+| W12  | M9–M11 | 성능·안정성 기준 충족, 데모 빌드              |
+
+---
+
+## Definition of Done (도메인별)
+
+* **전술 반영**: 슬라이더 변경 → **3틱 이내** 라인/폭/반경 오버레이 업데이트
+* **결정론**: 동일 입력+시드 → 100경기 프레임 정확 리플레이 해시 일치
+* **룰**: 오프사이드/파울/재시작/어드밴티지 프로퍼티 테스트 통과
+* **성능**: 22명 경기 시뮬 틱 평균 ≤ 4ms, 99% 프레임 ≤ 8ms (PC)
+
+---
+
+## 리스크 & 대응
+
+* 결정론 붕괴 → 핵심 수치 fixed-point/정규화, 골든 리플레이 CI
+* O(N²) 병목 → 공간분할(그리드/쿼드트리), 유틸리티 후보 제한/캐시
+* 룰 복잡성 → 최소 케이스→프로퍼티 테스트→커버리지 확장
+* UI 피로 → 프리셋·추천 힌트(예: “PPDA 높음 → 라인 낮추기”)
+
+---
+
+## 작업 티켓 목록 (예시; GitHub Issue로 분해)
+
+### Engine/Core
+
+* [x] `fixed_dt` 고정 및 렌더 보간 파이프 구축
+* [ ] RNG 시드/정규화 유틸(플랫폼 간 일관성)
+* [x] Snapshot v1 직렬화/역직렬화 + 버전 헤더 추가
+* [ ] Replay v1(입력·시드) + 해시 비교기
+* [ ] 충돌 계층 정리(선수–선수 soft, 선수–볼 hard, 볼–골포스트)
+
+### AI/Decision
+
+* [ ] FSM 프레임(개인/팀) + 상태 전이 로깅
+* [ ] 유틸리티 스코어 공통 라이브러리(웨이트 주입)
+* [ ] 패스 평가 함수(레인/각/거리/차단/후속 xG)
+* [ ] 압박/커버 스코어 + 영향지도 연동
+* [ ] 마킹 할당(탐욕/헝가리안) + 히스테리시스
+* [ ] 플레이북 실행기(트리거/목표/종료·쿨다운)
+
+### Rules/Match
+
+* [ ] 재시작 시나리오 엔진(킥오프/스로인/골킥/코너/프리킥)
+* [ ] 파울/어드밴티지/카드 판정기
+* [ ] 오프사이드 판정(패스 순간 기준)
+* [ ] 경기 타임라인(전반/후반/추가시간/교체)
+
+### Physics/Condition
+
+* [ ] 스태미너 모델(템포·압박 연동) + 성능 영향
+* [ ] 부상 시스템(옵션)
+* [ ] 날씨/피치 파라미터(옵션)
+
+### UI/HUD/Tools
+
+* [ ] 전술 패널(슬라이더/프리셋/개인지시 라딜)
+* [ ] 디버그 오버레이(라인/폭/압박반경/경로/AABB)
+* [ ] KPI HUD(PPDA/xG/xT/터치맵/전술 로그)
+* [ ] 세트피스 에디터 v1(코너/프리킥 플레이북)
+* [ ] DevConsole(전술 주입·시나리오 스폰)
+* [x] WASM 브리지: 60Hz 스냅샷/명령(패스·슛·전술 프리셋/토글) 연동
+
+### Networking/Replay/Analytics
+
+* [ ] 락스텝 프로토콜(`TacticOp(tick=N+k)`) 구현
+* [ ] RTT 기반 k 산정, 틱 드리프트 감시
+* [ ] 리플레이 뷰어(카메라/이벤트 점프/오버레이)
+* [ ] 스카우트 뷰(라인·폭·간격 타임시리즈)
+* [ ] Telemetry: 틱 시간/alloc/성공률 히스토그램
+
+---
+
+## 참고 구조(폴더 제안)
 
 ```
-corepack enable
-node -v && pnpm -v
-rustup default stable
-rustup target add wasm32-unknown-unknown
-```
-
-**DoD**: 버전 출력 및 타깃 추가 성공
-
----
-
-## 1) 디렉터리 레이아웃 (엔진 중심)
-
-```
-packages/engine/
-  src/
-    lib.rs              // wasm_bindgen 공개 API
-    engine.rs           // 틱 파이프라인 오케스트레이션
-    state.rs            // SoA 월드/선수/팀/볼 상태
-    params.rs           // 상수/튜닝
-    types.rs            // enum/공용 타입
-    rng.rs              // PCG 결정론 RNG
-    spatial.rs          // 균일 그리드(8×6)
-    physics/
-      mod.rs
-      player.rs         // 이동/회전/회피/스태미나
-      ball.rs           // 2.5D 공중볼 + 바운스
-      collisions.rs     // 원/캡슐 거리, 반사
-    ai/
-      mod.rs
-      xt.rs             // 12×8 xT 테이블 및 보간
-      utility.rs        // U_move/U_pass/U_shoot, 확률식
-      scheduler.rs      // staggered 재평가(2틱 간격)
-    rules/
-      mod.rs
-      offside.rs        // 패스 스냅샷 판정
-      restarts.rs       // ThrowIn/Corner/GoalKick 상태머신
-      referee.rs        // 득점/라인아웃/파울 기본
-    tactics.rs          // 전술 파라미터 → 목표 라인/폭/컴팩트니스
-    commands.rs         // 명령 버퍼(미래틱만), 검증/쿨다운
-    snapshot.rs         // 스냅샷/델타(양자화 i16), BLAKE3 해시
-  Cargo.toml
+engine/        # Rust 코어(물리/룰/AI)
+engine-wasm/   # WASM 바인딩, 스냅샷/커맨드 직렬화
+web/           # TS/Three.js + 전술 UI/HUD
+assets/        # 팀/선수/포메이션/플레이북 JSON
+tools/         # 리플레이 뷰어/스카우트 뷰/검증 스크립트
+.github/       # CI(골든 리플레이 해시 비교, 테스트)
 ```
 
 ---
 
-## 2) Cargo.toml (필수 의존)
+## 이슈 템플릿 (복붙용)
 
-```toml
-[package]
-name = "engine"
-version = "0.1.0"
-edition = "2021"
+```md
+### 목적
+(문제/가치)
 
-[lib]
-crate-type = ["cdylib"]
+### 완료 조건 (DoD)
+- [ ]
 
-[dependencies]
-wasm-bindgen = "0.2"
-rand = { version = "0.8", default-features = false }
-rand_pcg = "0.3"
-blake3 = { version = "1", default-features = false }
+### 상세 작업
+- [ ]
+
+### 리스크/노트
+-
 ```
-
----
-
-## 3) 상수/튜닝 — `params.rs`
-
-```rust
-pub const DT: f32 = 0.05;           // 20Hz
-pub const PITCH_W: f32 = 105.0;     // m
-pub const PITCH_H: f32 = 68.0;      // m
-pub const GOAL_W: f32  = 7.32;      // m
-pub const R_BODY: f32  = 0.35;      // player collider radius
-
-// Player movement defaults (상한/하한은 선수 파라미터로 덮어씀)
-pub const PLAYER_VMAX: f32 = 6.8;   // m/s
-pub const PLAYER_AMAX: f32 = 4.5;   // m/s^2
-pub const OMEGA_MAX: f32   = 6.0;   // rad/s 기본치
-
-// Ball 2.5D
-pub const G: f32 = 9.81;
-pub const MU_AIR: f32 = 0.005;
-pub const MU_GROUND: f32 = 0.02;
-pub const MU_BOUNCE: f32 = 0.10;
-pub const E_Z: f32 = 0.55;          // 수직 반발계수
-pub const VZ_MIN: f32 = 1.0;        // 바운스 정지 임계
-
-// Spatial grid
-pub const GRID_X: usize = 8;  // ≈13m
-pub const GRID_Y: usize = 6;  // ≈11m
-pub const NEIGHBORS: usize = 6;
-
-// AI
-pub const AI_REEVAL_PERIOD: u32 = 2; // 11명/틱 재평가
-pub const INTERCEPT_SAMPLES: usize = 12;
-pub const INTERCEPT_TOPK: usize = 3;
-```
-
-**DoD**: 컴파일 성공
-
----
-
-## 4) 상태/파라미터 — `state.rs`
-
-```rust
-pub const N_PLAYERS: usize = 22;
-
-#[repr(C)]
-pub struct World {
-  pub tick: u32, pub ms: u32, pub seed: u64,
-  // Ball (2.5D)
-  pub bx: f32, pub by: f32, pub bvx: f32, pub bvy: f32,
-  pub bz: f32, pub bvz: f32, pub bmode: u8, // 0=GROUND,1=AIR
-  // Players SoA
-  pub px: [f32; N_PLAYERS], pub py: [f32; N_PLAYERS],
-  pub vx: [f32; N_PLAYERS], pub vy: [f32; N_PLAYERS],
-  pub hx: [f32; N_PLAYERS], pub hy: [f32; N_PLAYERS],
-  pub stamina: [f32; N_PLAYERS],
-  pub role: [u8; N_PLAYERS], pub team: [u8; N_PLAYERS],
-  // Meta
-  pub goals_a: u8, pub goals_b: u8, pub phase: u8,
-}
-
-pub struct PlayerParams {
-  pub v_max: f32, pub a_max: f32, pub omega_max: f32,
-  pub stamina_max: f32, pub stamina_move_cost: f32, pub stamina_recovery: f32,
-  pub ctrl_radius: f32, pub ctrl_angle_deg: f32,
-  pub pass_err_sigma: f32, pub shot_err_sigma: f32,
-  pub pass_speed_max: f32, pub shot_speed_max: f32,
-  pub tackle_len: f32, pub tackle_rad: f32, pub foul_base: f32,
-  pub collision_push: f32, pub intercept_react_ms: f32,
-  pub weak_acc_mult: f32, pub weak_power_mult: f32, pub foot: u8,
-}
-```
-
-**DoD**: SoA 구조 정의, 생성자에서 기본값으로 채워짐
-
----
-
-## 5) 공개 API — `lib.rs`
-
-```rust
-use wasm_bindgen::prelude::*;
-
-#[wasm_bindgen]
-pub struct Engine { /* world, params, rng, buffers */ }
-
-#[wasm_bindgen]
-impl Engine {
-  #[wasm_bindgen(constructor)]
-  pub fn new(seed: u64) -> Engine;
-
-  pub fn step(&mut self, dt_ms: u32);
-
-  pub fn submit_cmd(&mut self, tick: u32, cmd_json: &str) -> bool;
-
-  pub fn snapshot_ptr(&self) -> *const u8;
-  pub fn snapshot_len(&self) -> usize;
-  pub fn delta_since(&self, last_tick: u32) -> Vec<u8>;
-  pub fn state_hash(&self, tick: u32) -> String;
-
-  pub fn load_player_params(&mut self, idx: u32, params_json: &str) -> bool;
-}
-```
-
-**DoD**: 빈 구현으로도 wasm 빌드 성공
-
----
-
-## 6) 틱 파이프라인 — `engine.rs`
-
-```rust
-pub fn step(&mut self, dt_ms: u32) {
-  // 1) 명령 적용 (tick-D)
-  // 2) 전술 업데이트 (250ms 주기)
-  // 3) AI 재평가 (subset, 11명/틱)
-  // 4) player integrate (v/a/ω, separation)
-  // 5) ball integrate (2.5D, bounce/land)
-  // 6) rules/referee (offside, restarts, goals)
-  // 7) spatial grid rebuild
-  // 8) snapshot/delta/hash 업데이트
-  // 9) tick++
-}
-```
-
-**DoD**: 상기 호출 시 크래시 없이 진행, tick 증가 확인
-
----
-
-## 7) 2.5D 볼 — `physics/ball.rs`
-
-구현 포인트:
-
-* 상태: `(x,y,vx,vy,z,vz,mode)`
-* AIR: `vz += -G*DT; z += vz*DT; x += vx*DT; y += vy*DT;` (μ\_air 적용)
-* 착지/바운스: `vz = -E_Z*vz; vx,vy *= (1-MU_BOUNCE);`; `|vz|<VZ_MIN → GROUND`
-* GROUND: `vx,vy *= (1-MU_GROUND)`; 라인/플레이어 반사; 트래핑 규칙 훅
-* **로프트 킥(set\_lofted)**:
-
-```rust
-pub fn set_lofted(x0:f32,y0:f32,x1:f32,y1:f32,loft:f32,speed_cap:f32)->(f32,f32,f32){
-  let d = ((x1-x0)*(x1-x0) + (y1-y0)*(y1-y0)).sqrt();
-  let h = 0.8 + (3.0-0.8)*loft;         // apex
-  let vz0 = (2.0*G*h).sqrt();
-  let t  = 2.0*vz0/G;
-  let vh = (d/t).clamp(8.0, speed_cap);
-  let nx = (x1-x0)/d; let ny = (y1-y0)/d;
-  (vh*nx, vh*ny, vz0)
-}
-```
-
-**DoD**: 대칭 탄도 테스트에서 착지 오차 < 0.3m
-
----
-
-## 8) 플레이어 이동/회전/회피 — `physics/player.rs`
-
-* 속도형 PD: `a = clamp((v_desired - v)/τ, ±a_max)`; `v += a*DT`; `|v|≤v_max`
-* 회전: `θ → θ_des`로 `Δθ ≤ ω_max*DT` 제한; `h=(cosθ,sinθ)` 업데이트
-* 회피(Separation): 이웃 6명에 대해 `repulsion = k / max(ε, d - 2*R_BODY)` 누적
-  **DoD**: 혼잡 구역에서 겹침 없이 이동, 속도/회전 상한 준수
-
----
-
-## 9) 공간 인덱스 — `spatial.rs`
-
-* 균일 그리드(8×6), 각 셀에 선수 인덱스 벡터
-* 이웃 질의: 자기+8이웃 → 거리 상위 6명만 사용
-  **DoD**: O(N) 삽입, 평균 근접 질의가 상수시간에 가까움
-
----
-
-## 10) 전술/목표 위치 — `tactics.rs`
-
-* 파라미터(8종): `line_height, press_intensity, team_width, build_up, counter_press, long_ball_bias, overlap_fullbacks, compactness`
-* 출력: 팀별 **수비/미드 라인 x**, 폭(y 스케일), 레인 앵커 좌표
-  **DoD**: 파라미터 변경 시 대형이 즉시/부드럽게 반영
-
----
-
-## 11) AI — `ai/xt.rs`, `ai/utility.rs`, `ai/scheduler.rs`
-
-* `xt.rs`: 12×8 테이블 상수 + 양선형 보간 함수
-* `utility.rs`:
-
-  * `p_pass(dist,angle,pressure,interceptors)` 로지스틱
-  * `U_move = 1.2*xT - 0.8*pressure - 0.3*stamina_cost`
-  * `U_pass = xT(teammate)*p_pass`; `U_shoot = 2.0*p_shot`
-  * argmax로 행동 결정 → `v_desired`/패스/슛/태클 커맨드 생성
-* `scheduler.rs`: 2틱 간격 라운드로빈(틱당 11명만 재평가)
-  **DoD**: 압박↑/거리↑ 시 패스 확률 하향, 틱 예산 내 실행(≤2ms 목표)
-
----
-
-## 12) 룰 — `rules/offside.rs`, `rules/restarts.rs`, `rules/referee.rs`
-
-* 오프사이드: 패스 발생 틱에 스냅샷 → 공 x, 2nd-last 수비 x 비교
-* 라인아웃/코너/골킥: XY 라인아웃 즉시 전환, 킥오프 후 InPlay 복귀
-* 득점: 골라인 통과 & `z<2.44m` 조건
-  **DoD**: 4가지 오프사이드 케이스, 라인아웃 케이스 단위테스트 통과
-
----
-
-## 13) 명령 버퍼 — `commands.rs`
-
-```rust
-pub enum Cmd {
-  TacticsSet(Tactics),
-  RoleOverride{ pid:u8, params:RoleParams, ttl:u16 },
-  LoftedPass{ tx:f32, ty:f32, loft:f32 },
-  GroundPass{ tx:f32, ty:f32 },
-  Shoot{ tx:f32, ty:f32, power:f32 },
-}
-```
-
-규칙: **미래틱만 수용**, 전술 쿨다운 10틱, 레이트리밋 8req/s, 좌표 범위/속도상한 검증
-**DoD**: 과거틱 입력 거부, 쿨다운/레이트리밋 동작 로그 확인
-
----
-
-## 14) 스냅샷/델타/해시 — `snapshot.rs`
-
-* 스냅샷(1Hz): `World` 필드 **수동 직렬화(LE)**
-* 델타(매틱): 필드 변경 비트마스크 + i16 양자화 (pos 0.05m, vel 0.02m/s)
-* 패킷 상한 512B 초과 시 강제 스냅샷
-* 해시: `blake3`로 핵심 배열+tick → 10틱마다 노출
-  **DoD**: 스냅샷 왕복 시 바이트 동일성, 델타 적용 후 동일 상태 복원
-
----
-
-## 15) 선수 데이터 매핑(입력→런타임) — 함수 시그니처
-
-* 입력 스키마(0–100): `pace, accel, agility, stamina, strength, first_touch, passing, vision, finishing, shot_power, tackling, interception` + `height_cm, weight_kg, foot, weak_foot(1..5)`
-
-```rust
-pub struct PlayerInput { /* 위 스키마에 맞게 정의 */ }
-
-pub fn compute_params(inp:&PlayerInput) -> PlayerParams {
-  // 제안된 수식에 따라 v_max/a_max/omega_max/ctrl_radius/ctrl_angle/
-  // pass_err_sigma/shot_err_sigma/pass_speed_max/shot_speed_max/
-  // tackle_len/tackle_rad/foul_base/collision_push/intercept_react_ms/
-  // weak_acc_mult/weak_power_mult/foot 계산 후 반환
-}
-```
-
-**DoD**: 평균치(60±10) 입력에서 파라미터가 권장 범위 내 산출
-
----
-
-## 16) 테스트 — `tests/`
-
-* `determinism.rs`: 동일 시드+입력 스트림 → `state_hash` 동일
-* `physics_ball.rs`: AIR→바운스→GROUND 감쇠 검증, 착지 오차 < 0.3m
-* `rules_offside.rs`: 참/거짓 4케이스
-* `ai_pass.rs`: 거리/압박/차단자 증가에 따른 `p_pass` 단조 감소
-* `snapshot_delta.rs`: 스냅샷/델타 왕복 일치
-  **DoD**: 모든 테스트 통과, 총 실행시간 < 2s
-
----
-
-## 17) 빌드/런 (WASM 단독 검증)
-
-```
-rustup target add wasm32-unknown-unknown
-cargo build -p engine --target wasm32-unknown-unknown --release
-```
-
-**DoD**: `*.wasm` 생성, 내보낸 심볼 확인(`wasm-bindgen` 사용 시 JS 래퍼로 로딩 가능)
-
----
-
-## 18) 성능/결정론 가드
-
-* fast-math 금지, 반복 순서 고정(팀→포지션→id)
-* 루프 내 동적 할당 금지, pre-alloc
-* 틱당 FFI 경계 1회(스냅샷/델타), 컨트롤 채널은 별도(JSON)
-* 메트릭: `cpu_ms(sim/ai)`, `tick_skew`, `hash_mismatch`
-  **DoD**: p95 `sim+ai ≤ 5ms`, 드리프트 < 2틱
-
----
-
-## 19) 확장 훅(후속 작업 슬롯)
-
-* GK 세이브/펀치 디테일, 체스트 컨트롤, 세트피스 연출
-* 호스트 마이그레이션(스냅샷 전송/권한 전환), 권위 서버(WS) 드라이버
-* 포지션별 베이스 커브, 개성/성향치
-
----
-
-### 제출 산출물
-
-* `packages/engine` 전체 구현 + 단위테스트 + WASM 산출물
-* 간단한 JS/TS 로더(선택)로 `step/snapshot` 호출 데모
-
-> 의문사항은 본 문서의 섹션 번호/파일 경로 기준으로 질의.

@@ -5,7 +5,7 @@ import { Ball } from './scene/ball';
 import { PlayerSystem } from "./scene/player_system";
 import { SimView, PlayerView, TeamId, BallView } from "./state";
 import { HUD } from './scene/hud';
-import { createEngineBridge } from "./wasm/bridge"; // 실제 엔진 연결 시
+import { createEngineBridge, EngineBridge, TacticsPayload } from "./wasm/bridge"; // 실제 엔진 연결 시
 
 // --- Basic Scene Setup ---
 const scene = new THREE.Scene();
@@ -55,17 +55,89 @@ players.setTeamColor(0, 0x1f77b4); // Team A: Blue
 players.setTeamColor(1, 0xd62728); // Team B: Red
 
 // --- Data Source ---
-const source = createEngineBridge();
+const bridge: EngineBridge = await createEngineBridge();
 
 // --- Game Loop ---
-const DT = 1/20; 
-let acc = 0, last = performance.now()/1000;
-let prev: SimView = source(), curr: SimView = prev;
+const SIM_DT = 1 / 60;
+let acc = 0,
+  last = performance.now() / 1000;
+let prev: SimView = bridge.getLastView();
+let curr: SimView = prev;
+let actionsEnabled = true;
+let activePreset = "Standard";
+
+const TACTIC_PRESETS: Record<string, { label: string; value: TacticsPayload }> = {
+  Digit1: {
+    label: "Low Block",
+    value: {
+      line_height: 0.2,
+      press_intensity: 0.3,
+      team_width: 0.4,
+      build_up: 0.35,
+      counter_press: 0.2,
+      long_ball_bias: 0.4,
+      overlap_fullbacks: 0.1,
+      compactness: 0.7,
+    },
+  },
+  Digit2: {
+    label: "Mid Block",
+    value: {
+      line_height: 0.45,
+      press_intensity: 0.55,
+      team_width: 0.55,
+      build_up: 0.5,
+      counter_press: 0.45,
+      long_ball_bias: 0.35,
+      overlap_fullbacks: 0.3,
+      compactness: 0.6,
+    },
+  },
+  Digit3: {
+    label: "Balanced",
+    value: {
+      line_height: 0.5,
+      press_intensity: 0.6,
+      team_width: 0.6,
+      build_up: 0.5,
+      counter_press: 0.5,
+      long_ball_bias: 0.4,
+      overlap_fullbacks: 0.45,
+      compactness: 0.5,
+    },
+  },
+  Digit4: {
+    label: "High Press",
+    value: {
+      line_height: 0.75,
+      press_intensity: 0.85,
+      team_width: 0.65,
+      build_up: 0.55,
+      counter_press: 0.8,
+      long_ball_bias: 0.3,
+      overlap_fullbacks: 0.5,
+      compactness: 0.55,
+    },
+  },
+  Digit5: {
+    label: "Fast Break",
+    value: {
+      line_height: 0.6,
+      press_intensity: 0.65,
+      team_width: 0.75,
+      build_up: 0.7,
+      counter_press: 0.35,
+      long_ball_bias: 0.7,
+      overlap_fullbacks: 0.6,
+      compactness: 0.45,
+    },
+  },
+};
 let fps = 0;
 
-function stepSim() { 
-  prev = curr; 
-  curr = source(); 
+function stepSim() {
+  prev = curr;
+  curr = bridge.step();
 }
 
 function frame(){
@@ -74,11 +146,11 @@ function frame(){
   last = now; 
   acc += dt;
 
-  while (acc >= DT) { 
+  while (acc >= SIM_DT) {
     stepSim(); 
-    acc -= DT; 
+    acc -= SIM_DT; 
   }
-  const a = acc/DT;
+  const a = acc / SIM_DT;
 
   // Interpolate players
   const interpPlayers = curr.players.map((b,i)=>{
@@ -107,7 +179,7 @@ function frame(){
   fps = fps * 0.95 + newFps * 0.05;
   updateCameraPosition();
   controls.update(dt);
-  hud.update(curr.tick, fps);
+  hud.update(curr.tick, fps, actionsEnabled, activePreset);
 
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
@@ -115,13 +187,23 @@ function frame(){
 
 // --- Keyboard Controls for Camera ---
 const keyboardState: { [key: string]: boolean } = {};
-window.addEventListener('keydown', (event) => { 
-    keyboardState[event.code] = true; 
-    if (event.code === 'KeyP') {
-        players.toggleDebugMode();
-    }
+window.addEventListener('keydown', (event) => {
+  keyboardState[event.code] = true;
+
+  if (event.code === 'KeyP') {
+    players.toggleDebugMode();
+  } else if (event.code === 'KeyT') {
+    actionsEnabled = !actionsEnabled;
+    bridge.toggleActions(actionsEnabled);
+  } else if (TACTIC_PRESETS[event.code]) {
+    const preset = TACTIC_PRESETS[event.code];
+    bridge.setTactics(preset.value);
+    activePreset = preset.label;
+  }
 });
-window.addEventListener('keyup', (event) => { keyboardState[event.code] = false; });
+window.addEventListener('keyup', (event) => {
+  keyboardState[event.code] = false;
+});
 
 const cameraMoveSpeed = 1.0;
 
@@ -158,6 +240,45 @@ window.addEventListener('resize', () => {
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
 });
+
+// --- Command helpers ---
+const raycaster = new THREE.Raycaster();
+const pointer = new THREE.Vector2();
+const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+
+function screenToPitchCoordinates(event: PointerEvent): { x: number; y: number } | null {
+  const rect = renderer.domElement.getBoundingClientRect();
+  pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(pointer, camera);
+  const hit = new THREE.Vector3();
+  if (raycaster.ray.intersectPlane(groundPlane, hit)) {
+    return { x: hit.x, y: hit.z };
+  }
+  return null;
+}
+
+renderer.domElement.addEventListener('pointerdown', (event) => {
+  if (event.button !== 0) return;
+  const target = screenToPitchCoordinates(event);
+  if (!target) return;
+
+  if (event.shiftKey) {
+    bridge.sendShoot(target, event.altKey ? 1.0 : 0.8);
+  } else if (event.altKey) {
+    bridge.sendLoftedPass(target, 0.65);
+  } else {
+    bridge.sendGroundPass(target);
+  }
+});
+
+// --- Tactics presets ---
+// Apply default tactics on start
+const defaultPreset = TACTIC_PRESETS["Digit3"];
+if (defaultPreset) {
+  bridge.setTactics(defaultPreset.value);
+  activePreset = defaultPreset.label;
+}
 
 // --- Start ---
 requestAnimationFrame(frame);

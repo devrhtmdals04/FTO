@@ -238,6 +238,12 @@ export class WasmEngine {
         wasm.wasmengine_command(this.__wbg_ptr, cmd);
     }
     /**
+     * @param {boolean} enabled
+     */
+    set_actions_enabled(enabled) {
+        wasm.wasmengine_set_actions_enabled(this.__wbg_ptr, enabled);
+    }
+    /**
      * @returns {string}
      */
     getPlayerDataJson() {

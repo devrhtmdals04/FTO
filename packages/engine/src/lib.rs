@@ -81,6 +81,10 @@ impl WasmEngine {
         self.inner.enqueue_command(cmd);
     }
 
+    pub fn set_actions_enabled(&mut self, enabled: bool) {
+        self.inner.set_actions_enabled(enabled);
+    }
+
     #[wasm_bindgen(js_name = getPlayerDataJson)]
     pub fn get_player_data_json(&self) -> String {
         let mut all_players = Vec::new();

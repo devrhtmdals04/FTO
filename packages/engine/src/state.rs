@@ -1,4 +1,4 @@
-use crate::params::{DT, PITCH_H, PITCH_W, R_BODY};
+use crate::params::{PITCH_H, PITCH_W, R_BODY, TICKS_PER_SECOND};
 use crate::player_data::get_baseline_player;
 use crate::tactics::Tactics;
 use crate::types::{
@@ -39,6 +39,7 @@ pub struct PlayerInput20 {
 pub struct World {
     pub tick: u32,
     pub ms: u32,
+    pub ms_subtick: u32,
     pub seed: u64,
 
     pub bx: f32,
@@ -83,6 +84,7 @@ impl World {
         let mut world = Self {
             tick: 0,
             ms: 0,
+            ms_subtick: 0,
             seed,
             bx: 0.0,
             by: 0.0,
@@ -127,6 +129,7 @@ impl World {
     pub fn reset_kickoff(&mut self) {
         self.match_phase = MatchPhase::PreKickoff;
         self.possession = TeamId::Home.index() as i8;
+        self.ms_subtick = 0;
         self.bx = 0.0;
         self.by = 0.0;
         self.bvx = 0.0;
@@ -148,7 +151,11 @@ impl World {
         let spacing_x = 12.0;
         let spacing_y = 8.0;
         for i in 0..N_PLAYERS {
-            let team = if i < N_PER_TEAM { TeamId::Home } else { TeamId::Away };
+            let team = if i < N_PER_TEAM {
+                TeamId::Home
+            } else {
+                TeamId::Away
+            };
             self.p_team[i] = team.index() as u8;
             self.p_role[i] = default_role(i % N_PER_TEAM);
             let slot = i % N_PER_TEAM;
@@ -167,8 +174,16 @@ impl World {
     }
 
     pub fn tick(&mut self) {
+        const MS_BASE: u32 = 1000 / TICKS_PER_SECOND;
+        const MS_REMAINDER: u32 = 1000 % TICKS_PER_SECOND;
+
         self.tick = self.tick.wrapping_add(1);
-        self.ms = self.ms.wrapping_add((DT * 1000.0) as u32);
+        self.ms = self.ms.wrapping_add(MS_BASE);
+        self.ms_subtick += MS_REMAINDER;
+        if self.ms_subtick >= TICKS_PER_SECOND {
+            self.ms = self.ms.wrapping_add(1);
+            self.ms_subtick -= TICKS_PER_SECOND;
+        }
     }
 
     pub fn ball_mode(&self) -> BallMode {
@@ -293,7 +308,11 @@ pub fn compute_params_20(inp: &PlayerInput20) -> PlayerParams {
     tackle_len += clampf(0.02 * dh, -0.02, 0.02);
     tackle_rad += clampf(0.01 * dm, -0.01, 0.01);
     collision_push *= clampf(1.00 + 0.12 * dm + 0.03 * dh, 0.92, 1.15);
-    aerial_ctrl_rad = clampf(aerial_ctrl_rad + clampf((height_m - 1.80) * 0.04, -0.02, 0.03), 0.30, 0.50);
+    aerial_ctrl_rad = clampf(
+        aerial_ctrl_rad + clampf((height_m - 1.80) * 0.04, -0.02, 0.03),
+        0.30,
+        0.50,
+    );
     let vis_scale = clampf(1.00 + 0.20 * dh + 0.05 * dm, 0.90, 1.15);
 
     #[cfg(feature = "body-size-from-bio")]

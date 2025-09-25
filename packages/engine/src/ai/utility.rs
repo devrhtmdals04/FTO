@@ -1,12 +1,7 @@
 use crate::params::{INTERCEPT_SAMPLES, INTERCEPT_TOPK};
 use std::vec::Vec;
 
-pub fn pass_success_probability(
-    dist: f32,
-    angle: f32,
-    pressure: f32,
-    interceptors: &[f32],
-) -> f32 {
+pub fn pass_success_probability(dist: f32, angle: f32, pressure: f32, interceptors: &[f32]) -> f32 {
     let angle_deg = angle.to_degrees().abs();
     let density_penalty = interceptors.iter().fold(0.0_f32, |acc, v| acc.max(*v));
 
@@ -32,11 +27,7 @@ pub fn intercept_scores(
 }
 
 pub fn select_topk(scores: &[f32; INTERCEPT_SAMPLES]) -> [f32; INTERCEPT_TOPK] {
-    let mut indexed: Vec<(usize, f32)> = scores
-        .iter()
-        .copied()
-        .enumerate()
-        .collect();
+    let mut indexed: Vec<(usize, f32)> = scores.iter().copied().enumerate().collect();
     indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(core::cmp::Ordering::Equal));
     let mut out = [0.0; INTERCEPT_TOPK];
     for (i, (_idx, value)) in indexed.into_iter().take(INTERCEPT_TOPK).enumerate() {

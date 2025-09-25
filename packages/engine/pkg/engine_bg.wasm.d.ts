@@ -7,6 +7,7 @@ export const wasmengine_tick: (a: number) => void;
 export const wasmengine_snapshot: (a: number) => [number, number];
 export const wasmengine_delta: (a: number) => [number, number];
 export const wasmengine_command: (a: number, b: any) => void;
+export const wasmengine_set_actions_enabled: (a: number, b: number) => void;
 export const wasmengine_getPlayerDataJson: (a: number) => [number, number];
 export const wasmengine_view: (a: number) => [number, number];
 export const __wbindgen_malloc: (a: number, b: number) => number;

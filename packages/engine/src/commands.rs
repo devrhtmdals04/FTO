@@ -12,10 +12,25 @@ const POSITION_EPS: f32 = 1.0;
 #[derive(Clone, Debug)]
 pub enum Cmd {
     TacticsSet(Tactics),
-    RoleOverride { pid: u8, params: RoleParams, ttl: u16 },
-    LoftedPass { tx: f32, ty: f32, loft: f32 },
-    GroundPass { tx: f32, ty: f32 },
-    Shoot { tx: f32, ty: f32, power: f32 },
+    RoleOverride {
+        pid: u8,
+        params: RoleParams,
+        ttl: u16,
+    },
+    LoftedPass {
+        tx: f32,
+        ty: f32,
+        loft: f32,
+    },
+    GroundPass {
+        tx: f32,
+        ty: f32,
+    },
+    Shoot {
+        tx: f32,
+        ty: f32,
+        power: f32,
+    },
 }
 
 #[derive(Default)]
@@ -56,11 +71,28 @@ struct CommandEnvelope {
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum CommandPayload {
-    TacticsSet { value: Tactics },
-    RoleOverride { pid: u8, params: RoleParams, ttl: u16 },
-    LoftedPass { tx: f32, ty: f32, loft: f32 },
-    GroundPass { tx: f32, ty: f32 },
-    Shoot { tx: f32, ty: f32, power: f32 },
+    TacticsSet {
+        value: Tactics,
+    },
+    RoleOverride {
+        pid: u8,
+        params: RoleParams,
+        ttl: u16,
+    },
+    LoftedPass {
+        tx: f32,
+        ty: f32,
+        loft: f32,
+    },
+    GroundPass {
+        tx: f32,
+        ty: f32,
+    },
+    Shoot {
+        tx: f32,
+        ty: f32,
+        power: f32,
+    },
 }
 
 pub struct ParsedCommand {
@@ -73,12 +105,7 @@ impl CommandBuffer {
         Self::default()
     }
 
-    pub fn push(
-        &mut self,
-        now_tick: u32,
-        apply_tick: u32,
-        cmd: Cmd,
-    ) -> Result<(), CommandError> {
+    pub fn push(&mut self, now_tick: u32, apply_tick: u32, cmd: Cmd) -> Result<(), CommandError> {
         if apply_tick <= now_tick {
             return Err(CommandError::PastTick);
         }
@@ -131,7 +158,7 @@ impl CommandBuffer {
 
     fn enforce_tactics_cooldown(
         &mut self,
-         _now_tick: u32,
+        _now_tick: u32,
         apply_tick: u32,
     ) -> Result<(), CommandError> {
         if let Some(last_tick) = self.last_tactics_tick {
@@ -165,7 +192,8 @@ fn in_pitch_bounds(x: f32, y: f32) -> bool {
 }
 
 pub fn parse_command(value: JsValue) -> Result<ParsedCommand, ParseError> {
-    let envelope: CommandEnvelope = from_value(value).map_err(|e| ParseError::Serde(e.to_string()))?;
+    let envelope: CommandEnvelope =
+        from_value(value).map_err(|e| ParseError::Serde(e.to_string()))?;
     let cmd = match envelope.payload {
         CommandPayload::TacticsSet { value } => Cmd::TacticsSet(value.clamp()),
         CommandPayload::RoleOverride { pid, params, ttl } => Cmd::RoleOverride { pid, params, ttl },

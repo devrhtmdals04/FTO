@@ -1,5 +1,5 @@
-pub const DT: f32 = 0.05; // 20Hz
-pub const TICKS_PER_SECOND: u32 = 20;
+pub const DT: f32 = 1.0 / 60.0; // 60Hz physics/control tick
+pub const TICKS_PER_SECOND: u32 = 60;
 
 pub const PITCH_W: f32 = 105.0;
 pub const PITCH_H: f32 = 68.0;
@@ -22,7 +22,7 @@ pub const GRID_X: usize = 8;
 pub const GRID_Y: usize = 6;
 pub const NEIGHBORS: usize = 6;
 
-pub const AI_REEVAL_PERIOD: u32 = 2;
+pub const AI_REEVAL_PERIOD: u32 = 3; // ~20Hz scheduler cadence at 60Hz core tick
 pub const INTERCEPT_SAMPLES: usize = 12;
 pub const INTERCEPT_TOPK: usize = 3;
 

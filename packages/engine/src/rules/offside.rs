@@ -1,6 +1,6 @@
 use crate::state::World;
-use std::vec::Vec;
 use crate::types::{MatchPhase, TeamId};
+use std::vec::Vec;
 
 pub fn check_offside(world: &World) -> bool {
     if world.match_phase != MatchPhase::InPlay {
