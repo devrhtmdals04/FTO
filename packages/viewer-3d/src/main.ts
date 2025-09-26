@@ -3,7 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createPitch } from './scene/pitch';
 import { Ball } from './scene/ball';
 import { PlayerSystem } from "./scene/player_system";
-import { SimView } from "./state";
+import { SimView, PlayerProfile } from "./state";
 import { HUD } from './scene/hud';
 import { createEngineBridge } from "./wasm/bridge";
 
@@ -44,16 +44,26 @@ const hud = new HUD();
 const players = new PlayerSystem();
 scene.add(players.group);
 
+// --- Data Source ---
+const source = createEngineBridge();
+
 // --- UI Controls & State ---
 const playerCountInput = document.getElementById('player-count') as HTMLInputElement;
 const applyPlayerCountBtn = document.getElementById('apply-player-count');
 const durationInput = document.getElementById('auto-play-duration') as HTMLInputElement;
 const modeIndicatorDiv = document.getElementById('mode-indicator') as HTMLDivElement;
 const debugControlsDiv = document.getElementById('debug-controls') as HTMLDivElement;
-const debugInfoPanel = document.getElementById('debug-info-panel');
+const playerModelInput = document.getElementById('player-model-url') as HTMLInputElement;
+const applyPlayerModelBtn = document.getElementById('apply-player-model');
+const playerProfileSelect = document.getElementById('player-profile-select') as HTMLSelectElement;
+const debugInfoPanel = document.getElementById('debug-info-panel') as HTMLDivElement | null;
 
 let isPaused = false;
 let playUntil = 0; // Timestamp until which the simulation runs automatically
+let playerProfiles: PlayerProfile[] = [];
+let selectedProfileIndex: number | null = null;
+let currentModelUrl = (playerModelInput?.value?.trim() || "/assets/player.glb");
+let currentPlayerCount = parseInt(playerCountInput?.value ?? '1', 10) || 1;
 
 function updateUIMode(count: number) {
     const isDebug = count < 22;
@@ -64,12 +74,87 @@ function updateUIMode(count: number) {
         debugControlsDiv.style.display = isDebug ? 'block' : 'none';
     }
     isPaused = isDebug;
+    if (!isDebug && debugInfoPanel) {
+        debugInfoPanel.style.display = 'none';
+    }
+    renderDebugInfoPanel();
 }
 
-async function restartPlayerSystem() {
+function renderDebugInfoPanel() {
+    if (!debugInfoPanel) return;
+    if (!players.isMasterDebug) {
+        debugInfoPanel.style.display = 'none';
+        return;
+    }
+
+    const profile = (selectedProfileIndex != null) ? playerProfiles[selectedProfileIndex] : undefined;
+    const teamLabel = profile ? (profile.team === 0 ? 'Home' : 'Away') : '';
+    const footLabel = profile ? (profile.foot === 'L' ? 'Left' : 'Right') : '';
+    const profileHtml = profile ? `
+        <div><strong>${profile.name}</strong> — ${teamLabel} Team</div>
+        <div>Height ${profile.height_cm} cm | Weight ${profile.weight_kg} kg</div>
+        <div>Foot ${footLabel} | Weak Foot ${profile.weak_foot}</div>
+        <div>Pace ${profile.pace} | Accel ${profile.accel} | Agility ${profile.agility} | Stamina ${profile.stamina} | Strength ${profile.strength}</div>
+        <div>First Touch ${profile.first_touch} | Passing ${profile.passing} | Vision ${profile.vision}</div>
+        <div>Finishing ${profile.finishing} | Shot Power ${profile.shot_power} | Heading ${profile.heading} | Jumping ${profile.jumping}</div>
+        <div>Tackling ${profile.tackling} | Interception ${profile.interception}</div>
+    ` : '<div>Select a player to see profile details.</div>';
+
+    debugInfoPanel.innerHTML = `
+        <strong>Debug Hotkeys:</strong><br>
+        [1] Toggle Skeleton<br>
+        [2] Toggle Model
+        <hr>
+        <strong>Player Profile</strong><br>
+        ${profileHtml}
+    `;
+    debugInfoPanel.style.display = 'block';
+}
+
+function updatePlayerIndexMapping() {
+  if (!players.ready) return;
+  if (currentPlayerCount >= 22) {
+    players.resetPlayerIndexMap();
+    return;
+  }
+  players.resetPlayerIndexMap();
+  if (selectedProfileIndex != null) {
+    players.setPlayerIndex(0, selectedProfileIndex);
+  }
+}
+
+async function restartPlayerSystem(modelUrlOverride?: string) {
   const count = parseInt(playerCountInput.value, 10) || 1;
+  await source.ready();
+
+  const previousModelUrl = players.getModelUrl();
+  const requestedUrl = (modelUrlOverride ?? currentModelUrl).trim() || "/assets/player.glb";
+  currentModelUrl = requestedUrl;
+  if (playerModelInput && playerModelInput.value !== requestedUrl) {
+    playerModelInput.value = requestedUrl;
+  }
+
   players.destroy();
-  await players.init(count);
+
+  try {
+    await players.init(count, requestedUrl);
+  } catch (err) {
+    console.error(`Failed to load player model from '${requestedUrl}'`, err);
+    if (previousModelUrl && previousModelUrl !== requestedUrl) {
+      currentModelUrl = previousModelUrl;
+      if (playerModelInput) {
+        playerModelInput.value = previousModelUrl;
+      }
+      await players.init(count, previousModelUrl);
+      if (typeof window !== 'undefined' && typeof window.alert === 'function') {
+        window.alert(`Failed to load model from "${requestedUrl}". Reverting to "${previousModelUrl}".`);
+      }
+    } else {
+      throw err;
+    }
+  }
+
+  currentPlayerCount = count;
   updateUIMode(count);
 
   // Disable AI for all but the active players in debug mode
@@ -79,25 +164,78 @@ async function restartPlayerSystem() {
 
   players.setTeamColor(0, 0x1f77b4);
   players.setTeamColor(1, 0xd62728);
+  updatePlayerIndexMapping();
+
+  if (selectedProfileIndex != null && !playerProfiles[selectedProfileIndex]) {
+    selectedProfileIndex = playerProfiles.length ? playerProfiles[0].index : null;
+    if (playerProfileSelect && selectedProfileIndex != null) {
+      playerProfileSelect.value = selectedProfileIndex.toString();
+    }
+  }
+
+  renderDebugInfoPanel();
 }
 
 if (applyPlayerCountBtn) {
-  applyPlayerCountBtn.addEventListener('click', restartPlayerSystem);
+  applyPlayerCountBtn.addEventListener('click', () => {
+    void restartPlayerSystem().catch(err => console.error('Failed to restart player system', err));
+  });
 }
 
-// --- Data Source ---
-const source = createEngineBridge();
+if (applyPlayerModelBtn) {
+  applyPlayerModelBtn.addEventListener('click', () => {
+    const url = playerModelInput.value.trim();
+    void restartPlayerSystem(url).catch(err => console.error('Failed to apply player model', err));
+  });
+  playerModelInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      const url = playerModelInput.value.trim();
+      void restartPlayerSystem(url).catch(err => console.error('Failed to apply player model', err));
+    }
+  });
+}
+
+if (playerProfileSelect) {
+  playerProfileSelect.addEventListener('change', () => {
+    const value = parseInt(playerProfileSelect.value, 10);
+    selectedProfileIndex = Number.isNaN(value) ? null : value;
+    updatePlayerIndexMapping();
+    renderDebugInfoPanel();
+  });
+}
 
 // Initial setup
 await (async function(){
+    await source.ready();
+    playerProfiles = source.getPlayerProfiles();
+    if (playerProfileSelect) {
+        playerProfileSelect.innerHTML = '';
+        playerProfiles.forEach(profile => {
+            const option = document.createElement('option');
+            const shirtNumber = (profile.index % 11) + 1;
+            const teamLabel = profile.team === 0 ? 'Home' : 'Away';
+            option.value = profile.index.toString();
+            option.textContent = `${teamLabel} #${shirtNumber} — ${profile.name}`;
+            playerProfileSelect.appendChild(option);
+        });
+        if (playerProfiles.length) {
+            selectedProfileIndex = playerProfiles[0].index;
+            playerProfileSelect.value = selectedProfileIndex.toString();
+        }
+    }
+
     const initialPlayerCount = parseInt(playerCountInput.value, 10) || 1;
-    await players.init(initialPlayerCount);
+    await players.init(initialPlayerCount, currentModelUrl);
+    currentPlayerCount = initialPlayerCount;
     updateUIMode(initialPlayerCount);
     for (let i = 0; i < 22; i++) {
         source.engine.set_ai_active(i, i < initialPlayerCount);
     }
     players.setTeamColor(0, 0x1f77b4);
     players.setTeamColor(1, 0xd62728);
+    updatePlayerIndexMapping();
+    renderDebugInfoPanel();
 })();
 
 
@@ -190,21 +328,10 @@ window.addEventListener('keydown', (event) => {
     if (event.code === 'KeyM') {
         const isEnteringDebug = !players.isMasterDebug;
         playerCountInput.value = (isEnteringDebug ? 1 : 22).toString();
-        restartPlayerSystem().then(() => {
+        void restartPlayerSystem().then(() => {
             players.toggleMasterDebug(isEnteringDebug);
-            if (debugInfoPanel) {
-                if (isEnteringDebug) {
-                    debugInfoPanel.style.display = 'block';
-                    debugInfoPanel.innerHTML = `
-                        <strong>Debug Hotkeys:</strong><br>
-                        [1] Toggle Skeleton<br>
-                        [2] Toggle Model
-                    `;
-                } else {
-                    debugInfoPanel.style.display = 'none';
-                }
-            }
-        });
+            renderDebugInfoPanel();
+        }).catch(err => console.error('Failed to toggle master debug', err));
     }
 
     // Sub-debug toggles (only active in master debug mode)

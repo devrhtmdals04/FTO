@@ -22,6 +22,30 @@ export interface SimView {
   players: PlayerView[];  // length 22
 }
 
+export interface PlayerProfile {
+  index: number;
+  team: TeamId;
+  name: string;
+  pace: number;
+  accel: number;
+  agility: number;
+  stamina: number;
+  strength: number;
+  first_touch: number;
+  passing: number;
+  vision: number;
+  finishing: number;
+  shot_power: number;
+  tackling: number;
+  interception: number;
+  heading: number;
+  jumping: number;
+  height_cm: number;
+  weight_kg: number;
+  foot: 'L' | 'R';
+  weak_foot: number; // 1..5
+}
+
 // (옵션) 엔진 애니 힌트 이벤트 ABI (엔진 미지원이면 사용 안 함)
 export type AnimEventKind = "KickL"|"KickR"|"Header"|"Trap"|"Tackle";
 export interface AnimEvent { tick: number; pid: number; kind: AnimEventKind; a?: number; b?: number; }

@@ -14,6 +14,8 @@ export interface PlayerInstance {
   skeletonHelper?: THREE.SkeletonHelper;
 }
 
+const modelCache = new Map<string, THREE.Object3D>();
+
 // Helper to create a text sprite
 function createActionTextSprite(text: string): THREE.Sprite {
     const canvas = document.createElement('canvas');
@@ -35,6 +37,10 @@ function createActionTextSprite(text: string): THREE.Sprite {
 
 
 export async function loadPlayerModel(url = "/assets/player.glb"): Promise<THREE.Object3D> {
+  if (modelCache.has(url)) {
+    return modelCache.get(url)!;
+  }
+
   const loader = new GLTFLoader();
   const gltf = await loader.loadAsync(url);
 
@@ -55,6 +61,8 @@ export async function loadPlayerModel(url = "/assets/player.glb"): Promise<THREE
   // Add BoxHelper to the template for debugging
   const boxHelper = new THREE.BoxHelper(model, 0xffff00); // Yellow box
   model.add(boxHelper);
+
+  modelCache.set(url, model);
 
   return model;
 }

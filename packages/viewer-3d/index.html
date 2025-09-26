@@ -19,6 +19,15 @@
         <label for="auto-play-duration">Auto-play (s):</label>
         <input type="number" id="auto-play-duration" value="5" min="1" max="30" style="width: 50px;">
       </div>
+      <div style="margin-top: 5px; display: flex; gap: 4px; align-items: center;">
+        <label for="player-model-url" style="white-space: nowrap;">Model URL:</label>
+        <input type="text" id="player-model-url" value="/assets/player.glb" style="flex: 1 1 auto; min-width: 140px;">
+        <button id="apply-player-model">Load</button>
+      </div>
+      <div style="margin-top: 5px;">
+        <label for="player-profile-select">Player Profile:</label>
+        <select id="player-profile-select" style="width: 100%; min-width: 180px;"></select>
+      </div>
     </div>
     <div id="app"></div>
     <div id="debug-info-panel" class="debug-overlay"></div>

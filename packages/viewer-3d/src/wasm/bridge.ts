@@ -1,7 +1,7 @@
-import { WasmEngine } from "../../../../packages/engine/pkg/engine.js";
+import init, { WasmEngine } from "../../../../packages/engine/pkg/engine.js";
 // ↑ 모노레포 경로 예시. 프로젝트 구조에 맞춰 바꿔주세요.
 
-import { SimView, PlayerView, TeamId } from "../state";
+import { SimView, PlayerView, TeamId, PlayerProfile } from "../state";
 
 const VIEW_VERSION_EXPECTED = 2;
 const PLAYER_VIEW_SIZE = 32; // x,y,hx,hy,vis,vis_y,vis_xz (7*f32) + team (u8) + padding (3*u8) = 32 bytes
@@ -69,12 +69,28 @@ export function createEngineBridge() {
   let ready = false;
   let engine: WasmEngine;
   let lastTick = 0;
+  let playerProfiles: PlayerProfile[] = [];
 
   const initFn = async () => {
     try {
       // In modern wasm-pack, the module is initialized on import.
       // We just need to instantiate the class.
+      await init(); // Initialize the WASM module
       engine = new WasmEngine(BigInt(42)); // seed 예시
+      const rawProfiles = engine.getPlayerDataJson();
+      if (rawProfiles) {
+        try {
+          const parsed = JSON.parse(rawProfiles) as Array<Omit<PlayerProfile, 'index' | 'team'>>;
+          playerProfiles = parsed.map((profile, idx) => ({
+            ...profile,
+            index: idx,
+            team: (idx < 11 ? 0 : 1) as TeamId,
+          }));
+        } catch (profileErr) {
+          console.error("Failed to parse player profile data:", profileErr);
+          playerProfiles = [];
+        }
+      }
       ready = true;
       console.log("WASM Engine initialized successfully.");
     } catch (e) {
@@ -82,8 +98,7 @@ export function createEngineBridge() {
     }
   };
 
-  // 즉시 kick
-  if (!ready) { void initFn(); }
+  const readyPromise = initFn();
 
   const get = (): SimView => {
     if (!ready) {
@@ -110,6 +125,8 @@ export function createEngineBridge() {
 
   return {
       get,
+      ready: () => readyPromise,
+      getPlayerProfiles: () => playerProfiles,
       engine: new Proxy({}, {
           get: (target, prop) => {
               if (ready) {

@@ -34,12 +34,14 @@ export class PlayerSystem {
   isMasterDebug = false;
   private skeletonVisible = false;
   private playerModelVisible = true;
+  private modelUrl: string = "/assets/player.glb";
 
   inst: PlayerInstance[] = [];
   ctrl: Record<string, THREE.AnimationAction>[] = [];
 
   private lockUntil: number[] = [];
   private isPlayerMoving: boolean[] = [];
+  private playerIndexMap: number[] = [];
 
   destroy() {
     for (const p of this.inst) {
@@ -49,17 +51,22 @@ export class PlayerSystem {
     this.ctrl = [];
     this.lockUntil = [];
     this.isPlayerMoving = [];
+    this.playerIndexMap = [];
     this.ready = false;
   }
 
-  async init(playerCount: number = 22) {
+  async init(playerCount: number = 22, modelUrl?: string) {
     console.log(`PlayerSystem.init() called with playerCount: ${playerCount}`);
 
-    const template = await loadPlayerModel("/assets/player.glb");
+    const resolvedModelUrl = modelUrl ?? this.modelUrl;
+    this.modelUrl = resolvedModelUrl;
+
+    const template = await loadPlayerModel(resolvedModelUrl);
     const loader = new GLTFLoader();
 
     this.lockUntil = new Array(playerCount).fill(0);
     this.isPlayerMoving = new Array(playerCount).fill(false);
+    this.playerIndexMap = Array.from({ length: playerCount }, (_, i) => i);
 
     for (let i = 0; i < playerCount; i++) {
       const p = spawnPlayer(template, i < 11 ? 0 : 1);
@@ -92,6 +99,10 @@ export class PlayerSystem {
       this.group.add(p.root);
     }
     this.ready = true;
+  }
+
+  getModelUrl(): string {
+    return this.modelUrl;
   }
 
   setTeamColor(team: 0 | 1, color: THREE.ColorRepresentation) {
@@ -145,7 +156,8 @@ export class PlayerSystem {
   update(view: PlayerView[], dt: number) {
     if (!this.ready) return;
     for (let i = 0; i < this.inst.length; i++) {
-      const v = view[i];
+      const mappedIdx = this.playerIndexMap[i] ?? i;
+      const v = view[mappedIdx];
       const p = this.inst[i];
       const actions = this.ctrl[i];
       if (!v || !p || !actions) continue;
@@ -169,7 +181,7 @@ export class PlayerSystem {
 
       if (this.isMasterDebug) {
         if (i === 0) {
-            console.log(`[Debug] P0: speed=${speed.toFixed(2)}, wIdle=${wIdle.toFixed(2)}, wRun=${wRun.toFixed(2)}`);
+            console.log(`[Debug] P${mappedIdx}: speed=${speed.toFixed(2)}, wIdle=${wIdle.toFixed(2)}, wRun=${wRun.toFixed(2)}`);
         }
         const actionName = this.getCurrentActionName(i);
         updateDebugText(p, actionName);
@@ -177,6 +189,16 @@ export class PlayerSystem {
 
       p.mixer.update(dt);
     }
+  }
+
+  setPlayerIndex(slot: number, playerIndex: number) {
+    if (!Number.isInteger(slot) || slot < 0 || slot >= this.playerIndexMap.length) return;
+    if (!Number.isInteger(playerIndex)) return;
+    this.playerIndexMap[slot] = playerIndex;
+  }
+
+  resetPlayerIndexMap() {
+    this.playerIndexMap = Array.from({ length: this.inst.length }, (_, i) => i);
   }
 
   applyEvents(events: AnimEvent[]) {
