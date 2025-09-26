@@ -6,6 +6,7 @@ export interface PlayerView {
   h: [number, number]; // heading unit vector (hx, hy)
   vis: number; // vis_scale from PlayerParams (1.0 ~)
   team: TeamId;
+  speed?: number; // Calculated speed from simulation
   // --- 확장(옵션) ---
   vis_y?: number;             // 키 스케일 (없으면 vis 사용)
   vis_xz?: number;            // 몸통 폭 스케일 (없으면 vis 사용)

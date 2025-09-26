@@ -1,10 +1,11 @@
+use crate::ai::fsm::PlayerFSM;
 use crate::ai::scheduler::Scheduler;
 use crate::commands::{parse_command, Cmd, CommandBuffer, CommandError, ParseError};
 use crate::physics::{ball::step_ball, player::step_players, PhysicsContext};
 use crate::rng::DeterministicRng;
 use crate::rules::{offside::check_offside, referee::update_referee, restarts::handle_restarts};
 use crate::snapshot::{self, DeltaBuffer, HashGuard, QuantizedWorld, SnapshotBuffer};
-use crate::state::World;
+use crate::state::{World, N_PLAYERS};
 use crate::types::{BallMode, TeamId, Vec2};
 
 pub struct Engine {
@@ -13,6 +14,8 @@ pub struct Engine {
     commands: CommandBuffer,
     scheduler: Scheduler,
     physics: PhysicsContext,
+    fsms: Vec<PlayerFSM>,
+    pub ai_active: Vec<bool>,
     last_hash: [u8; 32],
     last_quantized: Option<QuantizedWorld>,
 }
@@ -25,6 +28,8 @@ impl Engine {
             commands: CommandBuffer::new(),
             scheduler: Scheduler::new(),
             physics: PhysicsContext::new(),
+            fsms: (0..N_PLAYERS).map(|_| PlayerFSM::new()).collect(),
+            ai_active: vec![true; N_PLAYERS],
             last_hash: [0; 32],
             last_quantized: None,
         };
@@ -48,17 +53,13 @@ impl Engine {
     }
 
     fn update_ai(&mut self) {
-        let ball_pos = Vec2::new(self.world.bx, self.world.by);
-
-        for i in 0..crate::state::N_PLAYERS {
-            if self.scheduler.should_evaluate(i) {
-                let player_pos = self.world.player_pos(i);
-                
-                // Simple AI: move towards the ball
-                let desired_dir = (ball_pos - player_pos).normalize();
-                let desired_vel = desired_dir * crate::params::PLAYER_VMAX * 0.7; // Move at 70% of max speed
-
-                self.world.pcommand[i].target_vel = desired_vel;
+        for i in 0..N_PLAYERS {
+            if self.scheduler.should_evaluate(i) && self.ai_active[i] {
+                if let Some(fsm) = self.fsms.get_mut(i) {
+                    if let Some(cmd) = fsm.tick(&mut self.world, i) {
+                        self.commands.push(self.world.tick, self.world.tick + 1, cmd).ok();
+                    }
+                }
             }
         }
     }

@@ -3,26 +3,15 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { PlayerView } from "../state";
 
-export interface ClipSet {
-  idle?: THREE.AnimationClip;
-  walk?: THREE.AnimationClip;
-  run?: THREE.AnimationClip;
-  kickL?: THREE.AnimationClip;
-  kickR?: THREE.AnimationClip;
-  header?: THREE.AnimationClip;
-  trap?: THREE.AnimationClip;
-  tackle?: THREE.AnimationClip;
-}
-
 export interface PlayerInstance {
   root: THREE.Object3D;
   mixer: THREE.AnimationMixer;
-  clips: ClipSet;
   materials: THREE.MeshStandardMaterial[]; // 틴팅 대상 캐시
 
   // --- Debug Mode Objects ---
   debugMesh?: THREE.Mesh;
   debugText?: THREE.Sprite;
+  skeletonHelper?: THREE.SkeletonHelper;
 }
 
 // Helper to create a text sprite
@@ -45,49 +34,32 @@ function createActionTextSprite(text: string): THREE.Sprite {
 }
 
 
-export async function loadPlayerTemplate(url="/assets/player_alt.glb") {
+export async function loadPlayerModel(url = "/assets/player.glb"): Promise<THREE.Object3D> {
   const loader = new GLTFLoader();
   const gltf = await loader.loadAsync(url);
 
-  const template = gltf.scene;
-  template.traverse(o=>{
+  const model = gltf.scene;
+  model.traverse(o => {
     const m = o as THREE.Mesh;
     if (m.isMesh) {
-      m.castShadow = true; m.receiveShadow = true;
-      // glTF 기본이 PBR이므로 MeshStandardMaterial 기대
+      m.castShadow = true;
+      m.receiveShadow = true;
       if (!(m.material instanceof THREE.MeshStandardMaterial)) {
         const newMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
         (newMat as any).skinning = (m as any).isSkinnedMesh === true;
         m.material = newMat;
       }
-    } 
+    }
   });
 
   // Add BoxHelper to the template for debugging
-  const boxHelper = new THREE.BoxHelper(template, 0xffff00); // Yellow box
-  template.add(boxHelper);
+  const boxHelper = new THREE.BoxHelper(model, 0xffff00); // Yellow box
+  model.add(boxHelper);
 
-  // 클립 이름 매핑
-  const clips: ClipSet = {};
-  const anims = gltf.animations || [];
-  console.log(`[Debug] Found ${anims.length} animation clips in GLB.`);
-  for (const c of anims) {
-    const n = c.name.toLowerCase();
-    if      (n.includes("idle"))   clips.idle   = c;
-    else if (n.includes("walk"))   clips.walk   = c;
-    else if (n.includes("run"))    clips.run    = c;
-    else if (n.includes("kick_l")) clips.kickL  = c;
-    else if (n.includes("kick_r")) clips.kickR  = c;
-    else if (n.includes("header")) clips.header = c;
-    else if (n.includes("trap"))   clips.trap   = c;
-    else if (n.includes("tackle")) clips.tackle = c;
-    else console.log(`[Debug] Unmapped clip: ${c.name}`);
-  }
-  console.log('[Debug] Mapped GLTF clips:', clips);
-  return { template, clips };
+  return model;
 }
 
-export function spawnPlayer(template: THREE.Object3D, clips: ClipSet, team: 0|1): PlayerInstance {
+export function spawnPlayer(template: THREE.Object3D, team: 0|1): PlayerInstance {
   const root = SkeletonUtils.clone(template);
   const mixer = new THREE.AnimationMixer(root);
 
@@ -109,12 +81,6 @@ export function spawnPlayer(template: THREE.Object3D, clips: ClipSet, team: 0|1)
     }
   });
 
-   // 기본 포즈: idle (없으면 walk/run 중 하나)
-  const base = clips.idle ?? clips.walk ?? clips.run;
-  if (base) {
-    mixer.clipAction(base).setEffectiveWeight(1).play();
-  }
-
   // --- Debug Objects ---
   const cylinderGeo = new THREE.CylinderGeometry(0.25, 0.25, 1.8, 16); // radius, height
   const cylinderMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
@@ -130,7 +96,11 @@ export function spawnPlayer(template: THREE.Object3D, clips: ClipSet, team: 0|1)
   debugText.visible = false;
   root.add(debugText);
 
-  const instance: PlayerInstance = { root, mixer, clips, materials, debugMesh, debugText };
+  const skeletonHelper = new THREE.SkeletonHelper(root);
+  skeletonHelper.visible = false;
+  root.add(skeletonHelper);
+
+  const instance: PlayerInstance = { root, mixer, materials, debugMesh, debugText, skeletonHelper };
 
   // 초기 팀 컬러 (GLB 저지 및 디버그 실린더)
   setTeamColor(instance, team===0 ? 0x1f77b4 : 0xd62728);
@@ -164,7 +134,7 @@ export function setTeamColor(p: PlayerInstance, color: THREE.ColorRepresentation
 export function applyTransform(p: PlayerInstance, view: PlayerView) {
   const y = view.vis_y ?? view.vis ?? 1.0;
   const xz = view.vis_xz ?? view.vis ?? 1.0;
-  const yaw = Math.atan2(view.h[1], view.h[0]) - Math.PI/2;
+  const yaw = -Math.atan2(view.h[1], view.h[0]) + Math.PI/2;
 
   p.root.position.set(view.x, 0, view.y);
   p.root.rotation.set(0, yaw, 0);

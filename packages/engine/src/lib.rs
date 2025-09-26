@@ -2,6 +2,12 @@
 
 use wasm_bindgen::prelude::*;
 
+// This function is called when the wasm module is loaded.
+#[wasm_bindgen(start)]
+pub fn start() {
+    wasm_logger::init(wasm_logger::Config::default());
+}
+
 pub mod ai;
 pub mod commands;
 pub mod engine;
@@ -63,6 +69,12 @@ impl WasmEngine {
 
     pub fn tick(&mut self) {
         self.inner.tick();
+    }
+
+    pub fn set_ai_active(&mut self, player_index: usize, active: bool) {
+        if let Some(is_active) = self.inner.ai_active.get_mut(player_index) {
+            *is_active = active;
+        }
     }
 
     pub fn snapshot(&mut self) -> Vec<u8> {

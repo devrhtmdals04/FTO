@@ -1,96 +1,266 @@
 import * as THREE from "three";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { PlayerView, AnimEvent } from "../state";
-import { loadPlayerTemplate, spawnPlayer, setTeamColor, applyTransform, PlayerInstance, updateDebugText } from "./player_glb";
-import { AnimCtrl } from "./anim_ctrl";
+import { loadPlayerModel, spawnPlayer, setTeamColor, applyTransform, PlayerInstance, updateDebugText } from "./player_glb";
+import { loadAndAttachClips } from "./anim-binder";
+
+// --- Animation Configuration ---
+const animationConfig = {
+  clipUrls: {
+    Idle: "/assets/idle.glb",
+    Run: "/assets/run.glb",
+    Walk: "/assets/jog.glb", 
+    KickR: "/assets/kick_r.glb",
+  },
+  eventMap: {
+    KickL: { name: 'KickR', lockMs: 250 },
+    KickR: { name: 'KickR', lockMs: 250 },
+    Header: { name: 'Header', lockMs: 300 },
+    Trap: { name: 'Trap', lockMs: 200 },
+    Tackle: { name: 'Tackle', lockMs: 350 },
+  },
+  locomotionMap: {
+    idle: 'Idle',
+    walk: 'Walk',
+    run: 'Run',
+  }
+};
 
 export class PlayerSystem {
   group = new THREE.Group();
   ready = false;
-  debugMode = false;
+  
+  // Debug states
+  isMasterDebug = false;
+  private skeletonVisible = false;
+  private playerModelVisible = true;
 
   inst: PlayerInstance[] = [];
-  ctrl: AnimCtrl[] = [];
-  prev = new Array(22).fill(null).map(()=>new THREE.Vector2());
-  curr = new Array(22).fill(null).map(()=>new THREE.Vector2());
+  ctrl: Record<string, THREE.AnimationAction>[] = [];
 
-  async init() {
-    console.log("PlayerSystem.init() called."); // Keep this log
+  private lockUntil: number[] = [];
+  private isPlayerMoving: boolean[] = [];
 
-    const { template, clips } = await loadPlayerTemplate("/assets/player_alt.glb");
+  destroy() {
+    for (const p of this.inst) {
+      this.group.remove(p.root);
+    }
+    this.inst = [];
+    this.ctrl = [];
+    this.lockUntil = [];
+    this.isPlayerMoving = [];
+    this.ready = false;
+  }
 
-    for (let i=0;i<22;i++){
-      const p = spawnPlayer(template, clips, i<11 ? 0 : 1);
+  async init(playerCount: number = 22) {
+    console.log(`PlayerSystem.init() called with playerCount: ${playerCount}`);
+
+    const template = await loadPlayerModel("/assets/player.glb");
+    const loader = new GLTFLoader();
+
+    this.lockUntil = new Array(playerCount).fill(0);
+    this.isPlayerMoving = new Array(playerCount).fill(false);
+
+    for (let i = 0; i < playerCount; i++) {
+      const p = spawnPlayer(template, i < 11 ? 0 : 1);
+      
+      const actions = await loadAndAttachClips({
+        loader,
+        mixer: p.mixer,
+        model: p.root,
+        clipSources: animationConfig.clipUrls,
+      });
+
+      const { idle, walk, run } = animationConfig.locomotionMap;
+      if (actions[idle]) actions[idle].setEffectiveWeight(1).play();
+      if (actions[walk]) actions[walk].setEffectiveWeight(0).play();
+      if (actions[run]) actions[run].setEffectiveWeight(0).play();
+
+      Object.values(animationConfig.eventMap).forEach(eventInfo => {
+        const action = actions[eventInfo.name];
+        if (action) {
+            action.setLoop(THREE.LoopOnce, 0);
+            action.clampWhenFinished = true;
+            action.enabled = true;
+            action.setEffectiveWeight(0);
+            action.play();
+        }
+      });
+
       this.inst.push(p);
-      this.ctrl.push(new AnimCtrl(p.root, p.mixer, p.clips));
+      this.ctrl.push(actions);
       this.group.add(p.root);
     }
     this.ready = true;
   }
 
-  setTeamColor(team: 0|1, color: THREE.ColorRepresentation) {
-    for (let i=0;i<11;i++){
-      const idx = team===0 ? i : 11+i;
-      setTeamColor(this.inst[idx], color);
+  setTeamColor(team: 0 | 1, color: THREE.ColorRepresentation) {
+    for (let i = 0; i < 11; i++) {
+      const idx = team === 0 ? i : 11 + i;
+      if (this.inst[idx]) {
+        setTeamColor(this.inst[idx], color);
+      }
     }
   }
 
-  toggleDebugMode() {
-      this.debugMode = !this.debugMode;
-      console.log(`[Debug] Toggling debug mode: ${this.debugMode}`);
+  // --- Debugging Methods ---
 
-      for (const p of this.inst) {
-          // First child is the main GLB model
-          const model = p.root.children[0];
-          if (model) {
-              model.visible = !this.debugMode;
-          }
+  toggleMasterDebug(force?: boolean): boolean {
+    this.isMasterDebug = force ?? !this.isMasterDebug;
+    console.log(`[Debug] Master Debug Mode: ${this.isMasterDebug}`);
 
-          if (p.debugMesh) {
-              p.debugMesh.visible = this.debugMode;
-          }
-          if (p.debugText) {
-              p.debugText.visible = this.debugMode;
-          }
-      }
+    for (const p of this.inst) {
+      if (p.debugText) p.debugText.visible = this.isMasterDebug;
+    }
+
+    if (!this.isMasterDebug) {
+      this.toggleSkeleton(false);
+      this.togglePlayerModel(true);
+    }
+    
+    return this.isMasterDebug;
   }
 
-  // view: 보간된 PlayerView[], dt: 초
+  toggleSkeleton(force?: boolean) {
+    this.skeletonVisible = force ?? !this.skeletonVisible;
+    console.log(`[Debug] Skeletons visible: ${this.skeletonVisible}`);
+    for (const p of this.inst) {
+      if (p.skeletonHelper) {
+        p.skeletonHelper.visible = this.skeletonVisible;
+      }
+    }
+  }
+
+  togglePlayerModel(force?: boolean) {
+    this.playerModelVisible = force ?? !this.playerModelVisible;
+    console.log(`[Debug] Player model visible: ${this.playerModelVisible}`);
+    for (const p of this.inst) {
+      const model = p.root.children[0];
+      if (model) {
+        model.visible = this.playerModelVisible;
+      }
+    }
+  }
+
   update(view: PlayerView[], dt: number) {
     if (!this.ready) return;
-    for (let i=0;i<22;i++){
-      const v = view[i]; const p = this.inst[i]; const c = this.ctrl[i];
-      // 트랜스폼/스케일 적용
+    for (let i = 0; i < this.inst.length; i++) {
+      const v = view[i];
+      const p = this.inst[i];
+      const actions = this.ctrl[i];
+      if (!v || !p || !actions) continue;
+
       applyTransform(p, v);
 
-      // 속도 추정 (간단 차분)
-      const pp = this.prev[i], cp = this.curr[i];
-      pp.copy(cp); cp.set(v.x, v.y);
-      const speed = (pp.x===0 && pp.y===0) ? 0 : cp.distanceTo(pp) / Math.max(dt, 1e-6);
-      c.setLocomotionBySpeed(speed);
+      const speed = v.speed ?? 0;
 
-      if (this.debugMode) {
-          const actionName = c.getCurrentActionName();
-          updateDebugText(p, actionName);
+      // --- Locomotion Blending ---
+      const s = THREE.MathUtils.clamp(speed, 0, 7);
+      const { idle, walk, run } = animationConfig.locomotionMap;
+
+      const transitionStart = 1.0;
+      const transitionEnd = 4.0;
+      const wRun = THREE.MathUtils.smoothstep(s, transitionStart, transitionEnd);
+      const wIdle = 1.0 - wRun;
+
+      if (actions[idle]) actions[idle].setEffectiveWeight(wIdle);
+      if (actions[run]) actions[run].setEffectiveWeight(wRun);
+      if (actions[walk]) actions[walk].setEffectiveWeight(0); // Ensure walk is disabled
+
+      if (this.isMasterDebug) {
+        if (i === 0) {
+            console.log(`[Debug] P0: speed=${speed.toFixed(2)}, wIdle=${wIdle.toFixed(2)}, wRun=${wRun.toFixed(2)}`);
+        }
+        const actionName = this.getCurrentActionName(i);
+        updateDebugText(p, actionName);
       }
 
       p.mixer.update(dt);
     }
   }
 
-  // 엔진 애니 힌트 이벤트 처리 (옵션)
   applyEvents(events: AnimEvent[]) {
     if (!this.ready || !events) return;
     for (const e of events) {
-      const ctrl = this.ctrl[e.pid]; if (!ctrl) continue;
-      if (e.kind==="KickL") ctrl.play("kickL", 250);
-      else if (e.kind==="KickR") ctrl.play("kickR", 250);
-      else if (e.kind==="Header") ctrl.play("header", 300);
-      else if (e.kind==="Trap")   ctrl.play("trap",   200);
-      else if (e.kind==="Tackle") ctrl.play("tackle", 350);
+      const eventInfo = animationConfig.eventMap[e.kind as keyof typeof animationConfig.eventMap];
+      if (eventInfo) {
+        this.playOneShot(e.pid, eventInfo.name, eventInfo.lockMs);
+      }
     }
   }
 
-  // LOD: 멀면 가시성 축소 (필요시 캡슐 인스턴스와 토글)
+  private playOneShot(pid: number, name: string, lockMs: number) {
+    const now = performance.now();
+    if (now < this.lockUntil[pid]) return;
+
+    const actions = this.ctrl[pid];
+    const action = actions[name];
+    if (!action) return;
+
+    if (name === 'KickL' || name === 'KickR') {
+        const kickLAction = actions[animationConfig.eventMap.KickL.name];
+        const kickRAction = actions[animationConfig.eventMap.KickR.name];
+        if (kickLAction && kickLAction.getEffectiveWeight() > 0.01) kickLAction.fadeOut(0.05);
+        if (kickRAction && kickRAction.getEffectiveWeight() > 0.01) kickRAction.fadeOut(0.05);
+    }
+
+    action.reset();
+    action.setEffectiveTimeScale(1);
+    action.fadeIn(0.08).play();
+    this.lockUntil[pid] = now + lockMs;
+
+    const mixer = this.inst[pid].mixer;
+    const handler = (e: any) => {
+        if (e.action === action) {
+            action.fadeOut(0.08);
+            mixer.removeEventListener("finished", handler);
+        }
+    };
+    mixer.addEventListener("finished", handler);
+  }
+
+  private getCurrentActionName(pid: number): string {
+    const actions = this.ctrl[pid];
+    if (!actions) return 'UNKNOWN';
+
+    for (const eventInfo of Object.values(animationConfig.eventMap)) {
+        const action = actions[eventInfo.name];
+        if (action && action.isRunning() && action.getEffectiveWeight() > 0.5) {
+            return eventInfo.name.toUpperCase();
+        }
+    }
+
+    let maxWeight = 0;
+    let currentLocoAction = 'IDLE';
+    const { idle, walk, run } = animationConfig.locomotionMap;
+
+    const idleAction = actions[idle];
+    if (idleAction) {
+        const idleWeight = idleAction.getEffectiveWeight();
+        if (idleWeight > maxWeight) {
+            maxWeight = idleWeight;
+            currentLocoAction = idle.toUpperCase();
+        }
+    }
+    const walkAction = actions[walk];
+    if (walkAction) {
+        const walkWeight = walkAction.getEffectiveWeight();
+        if (walkWeight > maxWeight) {
+            maxWeight = walkWeight;
+            currentLocoAction = walk.toUpperCase();
+        }
+    }
+    const runAction = actions[run];
+    if (runAction) {
+        const runWeight = runAction.getEffectiveWeight();
+        if (runWeight > maxWeight) {
+            currentLocoAction = run.toUpperCase();
+        }
+    }
+    
+    return currentLocoAction;
+  }
+
   setFarLOD(enabled: boolean) {
     this.group.visible = !enabled;
   }

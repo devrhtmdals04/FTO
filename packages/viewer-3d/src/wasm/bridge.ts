@@ -1,5 +1,4 @@
-// NOTE: 실제 엔진 경로에 맞게 조정 (wasm-bindgen 출력)
-import initWasm, { WasmEngine } from "../../../../packages/engine/pkg/engine.js";
+import { WasmEngine } from "../../../../packages/engine/pkg/engine.js";
 // ↑ 모노레포 경로 예시. 프로젝트 구조에 맞춰 바꿔주세요.
 
 import { SimView, PlayerView, TeamId } from "../state";
@@ -73,9 +72,8 @@ export function createEngineBridge() {
 
   const initFn = async () => {
     try {
-      //console.log("initWasm:", initWasm);
-      //console.log("WasmEngine:", WasmEngine);
-      await initWasm();
+      // In modern wasm-pack, the module is initialized on import.
+      // We just need to instantiate the class.
       engine = new WasmEngine(BigInt(42)); // seed 예시
       ready = true;
       console.log("WASM Engine initialized successfully.");
@@ -87,8 +85,7 @@ export function createEngineBridge() {
   // 즉시 kick
   if (!ready) { void initFn(); }
 
-  // 반환: 호출 시 SimView 한 프레임
-  return (): SimView => {
+  const get = (): SimView => {
     if (!ready) {
       // 초기 로딩 중엔 빈 모션
       return { tick: lastTick, ball: {x:0,y:0,z:0}, players: Array.from({length:22},(_,i)=>( 
@@ -110,4 +107,16 @@ export function createEngineBridge() {
     lastTick = simView.tick;
     return simView;
   };
+
+  return {
+      get,
+      engine: new Proxy({}, {
+          get: (target, prop) => {
+              if (ready) {
+                  return Reflect.get(engine, prop);
+              }
+              return () => console.warn("Engine not ready yet.");
+          }
+      }) as WasmEngine
+  }
 }

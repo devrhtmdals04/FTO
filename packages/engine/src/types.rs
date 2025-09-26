@@ -19,6 +19,14 @@ impl TeamId {
         }
     }
 
+    pub fn from_index(idx: usize) -> TeamId {
+        if idx == 0 {
+            TeamId::Home
+        } else {
+            TeamId::Away
+        }
+    }
+
     pub fn opponent(self) -> TeamId {
         match self {
             TeamId::Home => TeamId::Away,
@@ -76,6 +84,15 @@ impl Vec2 {
 
     pub fn distance(self, other: Vec2) -> f32 {
         (self - other).norm()
+    }
+
+    pub fn lerp(self, other: Vec2, t: f32) -> Vec2 {
+        self + (other - self) * t
+    }
+
+    pub fn angle_between(self, other: Vec2) -> f32 {
+        let dot = self.normalize().dot(other.normalize());
+        dot.acos()
     }
 }
 

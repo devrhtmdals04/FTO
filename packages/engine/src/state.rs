@@ -197,6 +197,41 @@ impl World {
         self.pvy[idx] = vel.y;
     }
 
+    pub fn team_id(&self, idx: usize) -> u8 {
+        self.p_team[idx]
+    }
+
+    pub fn ball_pos(&self) -> Vec2 {
+        Vec2::new(self.bx, self.by)
+    }
+
+    pub fn ball_vel(&self) -> Vec2 {
+        Vec2::new(self.bvx, self.bvy)
+    }
+
+    pub fn player_has_ball(&self, idx: usize) -> bool {
+        if self.possession != self.p_team[idx] as i8 {
+            return false;
+        }
+        let player_pos = self.player_pos(idx);
+        let ball_pos = self.ball_pos();
+        let dist_sq = (player_pos - ball_pos).norm_squared();
+
+        if dist_sq > 1.5 * 1.5 { // Must be within 1.5 meters
+            return false;
+        }
+
+        let team_range = Self::team_slice(TeamId::from_index(self.p_team[idx] as usize));
+        for i in team_range {
+            if i == idx { continue; }
+            let other_pos = self.player_pos(i);
+            if (other_pos - ball_pos).norm_squared() < dist_sq {
+                return false; // Another teammate is closer
+            }
+        }
+        true
+    }
+
     pub fn team_slice(team: TeamId) -> core::ops::Range<usize> {
         match team {
             TeamId::Home => 0..N_PER_TEAM,
