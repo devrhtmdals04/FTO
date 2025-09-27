@@ -44,6 +44,7 @@ export interface PlayerProfile {
   weight_kg: number;
   foot: 'L' | 'R';
   weak_foot: number; // 1..5
+  ctrl_radius: number;
 }
 
 // (옵션) 엔진 애니 힌트 이벤트 ABI (엔진 미지원이면 사용 안 함)

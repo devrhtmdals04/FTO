@@ -12,6 +12,8 @@ export interface PlayerInstance {
   debugMesh?: THREE.Mesh;
   debugText?: THREE.Sprite;
   skeletonHelper?: THREE.SkeletonHelper;
+  targetMarker?: THREE.Object3D;
+  controlRadiusCircle?: THREE.Mesh;
 }
 
 const modelCache = new Map<string, THREE.Object3D>();
@@ -108,7 +110,23 @@ export function spawnPlayer(template: THREE.Object3D, team: 0|1): PlayerInstance
   skeletonHelper.visible = false;
   root.add(skeletonHelper);
 
-  const instance: PlayerInstance = { root, mixer, materials, debugMesh, debugText, skeletonHelper };
+  const circleGeo = new THREE.CircleGeometry(1, 32);
+  circleGeo.rotateX(-Math.PI / 2);
+  const circleMat = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.3 });
+  const controlRadiusCircle = new THREE.Mesh(circleGeo, circleMat);
+  controlRadiusCircle.visible = false;
+  root.add(controlRadiusCircle);
+
+  const instance: PlayerInstance = {
+    root,
+    mixer,
+    materials,
+    debugMesh,
+    debugText,
+    skeletonHelper,
+    targetMarker: undefined,
+    controlRadiusCircle,
+  };
 
   // 초기 팀 컬러 (GLB 저지 및 디버그 실린더)
   setTeamColor(instance, team===0 ? 0x1f77b4 : 0xd62728);
@@ -173,4 +191,30 @@ export function updateDebugText(p: PlayerInstance, text: string) {
     context.fillText(text, canvas.width / 2, canvas.height / 2);
 
     sprite.material.map!.needsUpdate = true;
+}
+
+export function disposePlayer(p: PlayerInstance) {
+  if (p.mixer) {
+    p.mixer.stopAllAction();
+    p.mixer.uncacheRoot(p.root);
+  }
+
+  p.root.traverse(object => {
+    const mesh = object as THREE.Mesh;
+    if (mesh.isMesh) {
+      if (mesh.geometry) {
+        mesh.geometry.dispose();
+      }
+      const material = mesh.material as any;
+      if (Array.isArray(material)) {
+        material.forEach(mat => {
+          if (mat.map) mat.map.dispose();
+          mat.dispose();
+        });
+      } else if (material) {
+        if (material.map) material.map.dispose();
+        material.dispose();
+      }
+    }
+  });
 }

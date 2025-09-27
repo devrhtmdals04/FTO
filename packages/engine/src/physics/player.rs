@@ -3,25 +3,28 @@ use crate::physics::collisions::separate_overlap;
 use crate::state::{World, N_PLAYERS};
 use crate::types::Vec2;
 
-pub fn step_players(world: &mut World) {
+pub fn step_players(world: &mut World, ai_active: &[bool]) {
     let dt = DT;
     for idx in 0..N_PLAYERS {
-        integrate_player(world, idx, dt);
+        let has_manual_input = world.pcommand[idx].target_vel.norm_squared() > 1e-6;
+        if ai_active[idx] || has_manual_input {
+            integrate_player(world, idx, dt);
+        }
     }
     resolve_player_collisions(world);
 }
 
 fn integrate_player(world: &mut World, idx: usize, dt: f32) {
-    let params = world.p_params[idx];
+    let params = world.p_params[idx]; //1.선수별 파라미터 가져오기.
     let cmd = world.pcommand[idx];
 
     let mut vel = world.player_vel(idx);
-    let desired = cmd.target_vel.clamp_norm(params.v_max);
+    let desired = cmd.target_vel.clamp_norm(params.v_max); // 2. 선수의 v_max사용.
     let delta = desired - vel;
-    let max_delta = params.a_max * dt;
+    let max_delta = params.a_max * dt; //3. 선수의 a_max사용.
     let delta_step = clamp_vector(delta, max_delta);
     vel += delta_step;
-    vel = vel.clamp_norm(params.v_max);
+    vel = vel.clamp_norm(params.v_max); //4. 최종 속도를 선수의 v_max로 제한.
 
     let mut pos = world.player_pos(idx);
     pos += vel * dt;
@@ -30,8 +33,8 @@ fn integrate_player(world: &mut World, idx: usize, dt: f32) {
     world.set_player_pos(idx, pos);
     world.set_player_vel(idx, vel);
 
-    update_facing(world, idx, vel, params.omega_max, dt);
-    update_stamina(world, idx, vel.norm(), params);
+    update_facing(world, idx, vel, params.omega_max, dt); //5. 선수의 omege_max사용.
+    update_stamina(world, idx, vel.norm(), params); //6. 선수의 스태미나 파라미터 사용.
 }
 
 fn clamp_vector(vec: Vec2, max_len: f32) -> Vec2 {
@@ -46,7 +49,7 @@ fn clamp_vector(vec: Vec2, max_len: f32) -> Vec2 {
 fn clamp_to_pitch(pos: &mut Vec2) {
     let half_w = PITCH_W * 0.5 - R_BODY;
     let half_h = PITCH_H * 0.5 - R_BODY;
-    pos.x = pos.x.clamp(-half_w, half_w);
+    pos.x = pos.x.clamp(-half_w, half_h);
     pos.y = pos.y.clamp(-half_h, half_h);
 }
 
@@ -70,7 +73,8 @@ fn update_stamina(world: &mut World, idx: usize, speed: f32, params: crate::type
 
         let stamina_change = (recovery_per_second - cost_per_second) * DT;
         let current_stamina_points = world.pstamina[idx] * params.stamina_max;
-        let new_stamina_points = (current_stamina_points + stamina_change).clamp(0.0, params.stamina_max);
+        let new_stamina_points =
+            (current_stamina_points + stamina_change).clamp(0.0, params.stamina_max);
 
         world.pstamina[idx] = new_stamina_points / params.stamina_max;
     }

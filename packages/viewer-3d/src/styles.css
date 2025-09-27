@@ -25,11 +25,89 @@ canvas {
   position: fixed;
   bottom: 10px;
   left: 10px;
-  background-color: rgba(0, 0, 0, 0.7);
+  background-color: rgba(0, 0, 0, 0.6);
   color: white;
   padding: 10px;
   border-radius: 5px;
   font-family: monospace;
   font-size: 14px;
+  max-width: 280px;
+  max-height: 60vh;
+  overflow-y: auto;
   display: none; /* Hidden by default */
+}
+
+.debug-overlay .hotkey-line {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+.debug-overlay .hotkey-key {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.15);
+  font-weight: 600;
+}
+
+.debug-overlay .profile-name {
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.debug-overlay .profile-meta,
+.debug-overlay .profile-stats {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+.debug-overlay .profile-empty {
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.hud-chip {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.55);
+  color: white;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-family: monospace;
+  font-size: 13px;
+}
+
+.hud-panel {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.55);
+  color: white;
+  padding: 12px;
+  border-radius: 6px;
+  font-family: monospace;
+  font-size: 13px;
+  max-width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hud-panel label {
+  font-size: 12px;
+}
+
+.hud-panel input,
+.hud-panel select,
+.hud-panel button {
+  font-size: 12px;
 }

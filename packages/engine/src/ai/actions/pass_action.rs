@@ -14,7 +14,10 @@ impl Action for PassAction {
 
             // Create a ground pass command towards the target player's position.
             let pass_target_pos = target.mate.pos;
-            Some(Cmd::GroundPass { tx: pass_target_pos.x, ty: pass_target_pos.y })
+            Some(Cmd::GroundPass {
+                tx: pass_target_pos.x,
+                ty: pass_target_pos.y,
+            })
         } else {
             // If called with an invalid payload, do nothing and end immediately.
             self.timer = 0;

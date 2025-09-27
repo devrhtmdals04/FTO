@@ -5,26 +5,56 @@ use engine::types::Foot;
 fn test_reach_height() {
     let inp = PlayerInput20 {
         name: "Test Player",
-        pace: 10, accel: 10, agility: 10, stamina: 10, strength: 10,
-        first_touch: 10, passing: 10, vision: 10, finishing: 10, shot_power: 10,
-        tackling: 10, interception: 10, heading: 10, jumping: 20,
-        height_cm: 190, weight_kg: 78,
-        foot: Foot::R, weak_foot: 3,
+        pace: 10,
+        accel: 10,
+        agility: 10,
+        stamina: 10,
+        strength: 10,
+        first_touch: 10,
+        passing: 10,
+        vision: 10,
+        finishing: 10,
+        shot_power: 10,
+        tackling: 10,
+        interception: 10,
+        heading: 10,
+        jumping: 20,
+        height_cm: 190,
+        weight_kg: 78,
+        foot: Foot::R,
+        weak_foot: 3,
     };
     let params = compute_params_20(&inp);
     let head_reach_m = params.height_m + params.jump_gain_m;
-    assert!((head_reach_m - 2.45).abs() < 0.05, "head_reach_m is {}", head_reach_m);
+    assert!(
+        (head_reach_m - 2.45).abs() < 0.05,
+        "head_reach_m is {}",
+        head_reach_m
+    );
 }
 
 #[test]
 fn test_monotonicity() {
     let base_input = PlayerInput20 {
         name: "Test Player",
-        pace: 10, accel: 10, agility: 10, stamina: 10, strength: 10,
-        first_touch: 10, passing: 10, vision: 10, finishing: 10, shot_power: 10,
-        tackling: 10, interception: 10, heading: 10, jumping: 10,
-        height_cm: 180, weight_kg: 75,
-        foot: Foot::R, weak_foot: 3,
+        pace: 10,
+        accel: 10,
+        agility: 10,
+        stamina: 10,
+        strength: 10,
+        first_touch: 10,
+        passing: 10,
+        vision: 10,
+        finishing: 10,
+        shot_power: 10,
+        tackling: 10,
+        interception: 10,
+        heading: 10,
+        jumping: 10,
+        height_cm: 180,
+        weight_kg: 75,
+        foot: Foot::R,
+        weak_foot: 3,
     };
 
     let mut heavier_input = base_input;

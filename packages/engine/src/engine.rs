@@ -43,7 +43,7 @@ impl Engine {
         self.world.advance_overrides();
         self.process_commands();
         self.update_ai();
-        step_players(&mut self.world);
+        step_players(&mut self.world, &self.ai_active);
         step_ball(&mut self.world, &self.physics.spatial, &mut self._rng.as_mut());
         handle_restarts(&mut self.world);
         update_referee(&mut self.world);
@@ -69,7 +69,8 @@ impl Engine {
     }
 
     fn process_commands(&mut self) {
-        for cmd in self.commands.drain_ready(self.world.tick) {
+        let commands_to_process: Vec<Cmd> = self.commands.drain_ready(self.world.tick).collect();
+        for cmd in commands_to_process {
             match cmd {
                 Cmd::TacticsSet(tactics) => {
                     self.world.tactics[TeamId::Home.index()] = tactics;
@@ -81,13 +82,27 @@ impl Engine {
                     }
                 }
                 Cmd::LoftedPass { tx, ty, loft } => {
-                    self.apply_ball_command(Vec2::new(tx, ty), 20.0, loft.clamp(0.0, 1.0) * 18.0, true);
+                    self.apply_ball_command(Vec2::new(tx, ty), 14.0, loft.clamp(0.0, 1.0) * 18.0, true);
                 }
                 Cmd::GroundPass { tx, ty } => {
-                    self.apply_ball_command(Vec2::new(tx, ty), 16.0, 0.0, false);
+                    self.apply_ball_command(Vec2::new(tx, ty), 11.0, 0.0, false);
                 }
                 Cmd::Shoot { tx, ty, power } => {
-                    self.apply_ball_command(Vec2::new(tx, ty), 24.0 + 8.0 * power, 6.0 * power, true);
+                    self.apply_ball_command(Vec2::new(tx, ty), 18.0 + 8.0 * power, 6.0 * power, true);
+                }
+                Cmd::MovePlayerVelocity { pid, vx, vy } => {
+                    if let Some(pcmd) = self.world.pcommand.get_mut(pid as usize) {
+                        pcmd.target_vel = Vec2::new(vx, vy);
+                    }
+                }
+                Cmd::MovePlayerTarget { pid, tx, ty } => {
+                    if let Some(pcmd) = self.world.pcommand.get_mut(pid as usize) {
+                        let player_pos = Vec2::new(self.world.px[pid as usize], self.world.py[pid as usize]);
+                        let target_pos = Vec2::new(tx, ty);
+                        let direction = (target_pos - player_pos).normalize();
+                        let player_params = self.world.p_params[pid as usize];
+                        pcmd.target_vel = direction * player_params.v_max;
+                    }
                 }
             }
         }

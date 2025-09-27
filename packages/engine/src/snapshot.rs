@@ -166,7 +166,9 @@ pub fn write_delta(prev: &QuantizedWorld, curr: &QuantizedWorld, buf: &mut Delta
     }
 
     let mut changed_players = Vec::new();
-    for (idx, (prev_player, curr_player)) in prev.players.iter().zip(curr.players.iter()).enumerate() {
+    for (idx, (prev_player, curr_player)) in
+        prev.players.iter().zip(curr.players.iter()).enumerate()
+    {
         if prev_player != curr_player {
             changed_players.push((idx as u8, *curr_player));
         }
@@ -217,7 +219,9 @@ pub fn quantize_world(world: &World) -> QuantizedWorld {
                 quantize(world.pvy[idx], SNAPSHOT_VEL_SCALE),
             ],
             stamina: (world.pstamina[idx].clamp(0.0, 1.0) * 1000.0).round() as u16,
-            vis_scale: ((params.vis_scale - 0.90) / 0.25 * 255.0).round().clamp(0.0, 255.0) as u8,
+            vis_scale: ((params.vis_scale - 0.90) / 0.25 * 255.0)
+                .round()
+                .clamp(0.0, 255.0) as u8,
             collider_radius_opt: (params.collider_radius_opt * 1000.0).round() as i16,
         };
     }

@@ -1,5 +1,8 @@
 #![allow(clippy::missing_inline_in_public_items)]
 
+use crate::state::compute_params_20;
+use crate::state::PlayerInput20;
+use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
 // This function is called when the wasm module is loaded.
@@ -28,6 +31,13 @@ use crate::state::N_PLAYERS;
 use serde_json;
 
 const VIEW_VERSION: u8 = 2;
+
+#[derive(Serialize)]
+struct PlayerProfileData {
+    #[serde(flatten)]
+    base: PlayerInput20,
+    ctrl_radius: f32,
+}
 
 #[inline]
 fn vis_from_params(height_m: f32, bmi: f32) -> (f32, f32) {
@@ -95,14 +105,24 @@ impl WasmEngine {
 
     #[wasm_bindgen(js_name = getPlayerDataJson)]
     pub fn get_player_data_json(&self) -> String {
-        let mut all_players = Vec::new();
+        let mut all_players_data = Vec::new();
         for i in 0..11 {
-            all_players.push(crate::player_data::get_baseline_player(i, 0));
+            let base_stats = crate::player_data::get_baseline_player(i, 0);
+            let params = compute_params_20(&base_stats);
+            all_players_data.push(PlayerProfileData {
+                base: base_stats,
+                ctrl_radius: params.ctrl_radius,
+            });
         }
         for i in 0..11 {
-            all_players.push(crate::player_data::get_baseline_player(i, 1));
+            let base_stats = crate::player_data::get_baseline_player(i, 1);
+            let params = compute_params_20(&base_stats);
+            all_players_data.push(PlayerProfileData {
+                base: base_stats,
+                ctrl_radius: params.ctrl_radius,
+            });
         }
-        serde_json::to_string(&all_players).unwrap_or_else(|_| "[]".to_string())
+        serde_json::to_string(&all_players_data).unwrap_or_else(|_| "[]".to_string())
     }
 
     #[wasm_bindgen]

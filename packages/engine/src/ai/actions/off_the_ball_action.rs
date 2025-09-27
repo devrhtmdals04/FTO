@@ -1,22 +1,21 @@
 use crate::ai::fsm::{Action, ActionContext, ActionPayload, ActionUpdate};
+use crate::ai::utility::{make_move, player_nav};
 
 #[derive(Default)]
 pub struct OffTheBallAction;
 
 impl Action for OffTheBallAction {
-    fn begin(&mut self, _context: &mut ActionContext, _payload: &ActionPayload) -> Option<crate::commands::Cmd> {
+    fn begin(
+        &mut self,
+        _context: &mut ActionContext,
+        _payload: &ActionPayload,
+    ) -> Option<crate::commands::Cmd> {
         None
     }
 
     fn update(&mut self, context: &mut ActionContext) -> ActionUpdate {
-        // Move towards the tactical formation anchor position.
-        let desired_dir = (context.perception.formation_anchor - context.perception.me.pos).normalize();
-        let speed_ratio = if (context.perception.formation_anchor - context.perception.me.pos).norm() > 5.0 {
-            1.0 // Sprint if far away
-        } else {
-            0.7 // Jog if close
-        };
-        let desired_vel = desired_dir * crate::params::PLAYER_VMAX * speed_ratio;
+        let nav = player_nav(context.perception.me.pos, context.perception.target_pos);
+        let desired_vel = make_move(&nav, crate::params::PLAYER_VMAX, 5.0, 0.7);
         ActionUpdate::Move(desired_vel)
     }
 

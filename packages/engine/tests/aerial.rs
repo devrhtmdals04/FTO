@@ -75,14 +75,41 @@ fn test_heading_accuracy() {
 
 // Test helper
 fn baseline_player_20_test(slot: usize) -> PlayerInput20 {
-    let (pace, accel, agility, stamina, strength, first_touch, passing, vision, finishing, shot_power, tackling, interception, heading, jumping) =
-        match slot {
-            0 => (8, 8, 10, 12, 14, 9, 10, 10, 4, 11, 8, 8, 8, 10), // GK
-            _ => (12, 11, 11, 14, 15, 11, 10, 10, 7, 11, 13, 13, 12, 12), // DEF
-        };
+    let (
+        pace,
+        accel,
+        agility,
+        stamina,
+        strength,
+        first_touch,
+        passing,
+        vision,
+        finishing,
+        shot_power,
+        tackling,
+        interception,
+        heading,
+        jumping,
+    ) = match slot {
+        0 => (8, 8, 10, 12, 14, 9, 10, 10, 4, 11, 8, 8, 8, 10), // GK
+        _ => (12, 11, 11, 14, 15, 11, 10, 10, 7, 11, 13, 13, 12, 12), // DEF
+    };
     PlayerInput20 {
         name: "Test Player",
-        pace, accel, agility, stamina, strength, first_touch, passing, vision, finishing, shot_power, tackling, interception, heading, jumping,
+        pace,
+        accel,
+        agility,
+        stamina,
+        strength,
+        first_touch,
+        passing,
+        vision,
+        finishing,
+        shot_power,
+        tackling,
+        interception,
+        heading,
+        jumping,
         height_cm: 180,
         weight_kg: 75,
         foot: if slot % 5 == 0 { Foot::L } else { Foot::R },

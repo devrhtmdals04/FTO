@@ -64,6 +64,7 @@ let playerProfiles: PlayerProfile[] = [];
 let selectedProfileIndex: number | null = null;
 let currentModelUrl = (playerModelInput?.value?.trim() || "/assets/player.glb");
 let currentPlayerCount = parseInt(playerCountInput?.value ?? '1', 10) || 1;
+let isDriveMode = false;
 
 function updateUIMode(count: number) {
     const isDebug = count < 22;
@@ -102,6 +103,7 @@ function renderDebugInfoPanel() {
 
     debugInfoPanel.innerHTML = `
         <strong>Debug Hotkeys:</strong><br>
+        [T] Toggle Drive Mode<br>
         [1] Toggle Skeleton<br>
         [2] Toggle Model
         <hr>
@@ -198,8 +200,20 @@ if (applyPlayerModelBtn) {
 
 if (playerProfileSelect) {
   playerProfileSelect.addEventListener('change', () => {
-    const value = parseInt(playerProfileSelect.value, 10);
-    selectedProfileIndex = Number.isNaN(value) ? null : value;
+    const newIndex = parseInt(playerProfileSelect.value, 10);
+    if (Number.isNaN(newIndex)) return;
+
+    // In debug mode, ensure AI activation follows the selected player
+    if (currentPlayerCount < 22) {
+        // Deactivate AI for the old player, if there was one
+        if (selectedProfileIndex != null) {
+            source.engine.set_ai_active(selectedProfileIndex, false);
+        }
+        // Activate AI for the new player
+        source.engine.set_ai_active(newIndex, true);
+    }
+
+    selectedProfileIndex = newIndex;
     updatePlayerIndexMapping();
     renderDebugInfoPanel();
   });
@@ -260,12 +274,68 @@ function stepSim() {
       playerSpeeds[i] = Math.hypot(dx, dy) / DT;
     }
   }
+
+  // DEBUG: Log speeds
+  const ball_dx = curr.ball.x - prev.ball.x;
+  const ball_dy = curr.ball.y - prev.ball.y;
+  const ball_speed = Math.hypot(ball_dx, ball_dy) / DT;
+  const player_speed = playerSpeeds[selectedProfileIndex ?? 0] ?? 0;
+  console.log(`Ball Speed: ${ball_speed.toFixed(2)}, Player ${selectedProfileIndex} Speed: ${player_speed.toFixed(2)}`);
+}
+
+function updateDriveMode() {
+    if (!isDriveMode || selectedProfileIndex == null) return;
+
+    const controlledPlayer = curr.players[selectedProfileIndex];
+    if (!controlledPlayer) return;
+
+    // --- Player Control ---
+    const playerParams = playerProfiles[selectedProfileIndex];
+    const maxSpeed = playerParams ? playerParams.pace * 0.1 : 7.0; // Example conversion
+    let vx = 0;
+    let vy = 0;
+    if (keyboardState['KeyW']) vy += 1;
+    if (keyboardState['KeyS']) vy -= 1;
+    if (keyboardState['KeyA']) vx -= 1;
+    if (keyboardState['KeyD']) vx += 1;
+
+    const moveVec = new THREE.Vector2(vx, vy);
+    if (moveVec.length() > 0) {
+        moveVec.normalize().multiplyScalar(maxSpeed);
+    }
+
+    source.engine.command({
+        type: 'move_player',
+        pid: selectedProfileIndex,
+        vx: moveVec.x,
+        vy: moveVec.y,
+        apply_tick: curr.tick + 1
+    });
+
+    // --- Camera Control ---
+    const playerPos = new THREE.Vector3(controlledPlayer.x, 1.0, controlledPlayer.y);
+    const cameraOffset = new THREE.Vector3(0, 8, -15); // Behind and above
+    
+    // Apply player's orientation to the offset
+    const playerOrientation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.atan2(controlledPlayer.h[0], controlledPlayer.h[1]));
+    cameraOffset.applyQuaternion(playerOrientation);
+
+    const cameraTarget = new THREE.Vector3().addVectors(playerPos, cameraOffset);
+    
+    camera.position.lerp(cameraTarget, 0.1);
+    controls.target.lerp(playerPos, 0.1);
 }
 
 function frame(){
   const now = performance.now()/1000;
   const dt = now - last; 
   last = now;
+
+  if (isDriveMode) {
+    updateDriveMode();
+  } else {
+    updateCameraPosition(); // Original camera controls
+  }
 
   let isAutoPlaying = playUntil > now;
 
@@ -301,7 +371,7 @@ function frame(){
     return { ...b, x, y, h: [hx/n, hy/n] as [number,number], speed };
   });
 
-  players.update(interpPlayers, dt);
+  players.update(interpPlayers, playerProfiles, dt);
   ball.update({
     x: THREE.MathUtils.lerp(prev.ball.x, curr.ball.x, a),
     y: THREE.MathUtils.lerp(prev.ball.y, curr.ball.y, a),
@@ -310,7 +380,7 @@ function frame(){
 
   const newFps = 1 / dt;
   fps = fps * 0.95 + newFps * 0.05;
-  updateCameraPosition();
+  
   controls.update(dt);
   hud.update(curr.tick, fps);
 
@@ -323,6 +393,15 @@ const keyboardState: { [key: string]: boolean } = {};
 window.addEventListener('keydown', (event) => { 
     if (event.target instanceof HTMLInputElement) return; // Ignore keypresses in input fields
     keyboardState[event.code] = true; 
+
+    if (event.code === 'KeyT') {
+        isDriveMode = !isDriveMode;
+        controls.enabled = !isDriveMode;
+        if (selectedProfileIndex !== null) {
+            source.engine.set_ai_active(selectedProfileIndex, !isDriveMode);
+        }
+        console.log(`Drive Mode ${isDriveMode ? 'ON' : 'OFF'}`);
+    }
 
     // Master Debug Mode Toggle
     if (event.code === 'KeyM') {
@@ -345,13 +424,13 @@ window.addEventListener('keydown', (event) => {
     }
 
     // Player commands (only in debug mode with 1 player)
-    if (isPaused && !event.repeat) {
+    if (isPaused && !event.repeat && !isDriveMode) { // Disable S/D keys in drive mode
         const tick = curr.tick;
         let cmd = null;
-        if (event.code === 'KeyD') { // Shoot
+        if (event.code === 'KeyJ') { // Shoot
             cmd = { apply_tick: tick + 2, type: "shoot", tx: 52.5, ty: 0.0, power: 0.8 };
         }
-        if (event.code === 'KeyS') { // Pass
+        if (event.code === 'KeyK') { // Pass
             const p_pos = {x: curr.players[0].x, y: curr.players[0].y };
             cmd = { apply_tick: tick + 2, type: "ground_pass", tx: p_pos.x + 15, ty: p_pos.y };
         }

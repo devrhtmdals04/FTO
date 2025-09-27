@@ -1,180 +1,248 @@
-use serde::Deserialize;
-use serde_wasm_bindgen::from_value;
-use wasm_bindgen::JsValue;
-
-use crate::params::{PITCH_H, PITCH_W, TACTICS_COOLDOWN_TICKS, TICKS_PER_SECOND};
+use crate::state::N_PLAYERS;
 use crate::tactics::Tactics;
 use crate::types::RoleParams;
+use serde::Deserialize;
+use wasm_bindgen::JsValue;
 
-const RATE_LIMIT_PER_SECOND: u32 = 8;
-const POSITION_EPS: f32 = 1.0;
-
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum Cmd {
     TacticsSet(Tactics),
-    RoleOverride { pid: u8, params: RoleParams, ttl: u16 },
-    LoftedPass { tx: f32, ty: f32, loft: f32 },
-    GroundPass { tx: f32, ty: f32 },
-    Shoot { tx: f32, ty: f32, power: f32 },
-}
-
-#[derive(Default)]
-pub struct CommandBuffer {
-    queue: Vec<ScheduledCmd>,
-    last_second_bucket: Option<u32>,
-    bucket_count: u32,
-    last_tactics_tick: Option<u32>,
-}
-
-#[derive(Clone, Debug)]
-struct ScheduledCmd {
-    apply_tick: u32,
-    cmd: Cmd,
+    RoleOverride {
+        pid: u8,
+        params: RoleParams,
+        ttl: u16,
+    },
+    LoftedPass {
+        tx: f32,
+        ty: f32,
+        loft: f32,
+    },
+    GroundPass {
+        tx: f32,
+        ty: f32,
+    },
+    Shoot {
+        tx: f32,
+        ty: f32,
+        power: f32,
+    },
+    MovePlayerVelocity {
+        pid: u8,
+        vx: f32,
+        vy: f32,
+    },
+    MovePlayerTarget {
+        pid: u8,
+        tx: f32,
+        ty: f32,
+    },
 }
 
 #[derive(Debug)]
-pub enum CommandError {
-    PastTick,
-    RateLimited,
-    TacticsCooldown,
-    OutOfBounds,
-}
-
-#[derive(Debug)]
-pub enum ParseError {
-    Serde(String),
-    Invalid,
-}
-
-#[derive(Deserialize)]
-struct CommandEnvelope {
-    apply_tick: u32,
-    #[serde(flatten)]
-    payload: CommandPayload,
-}
-
-#[derive(Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-enum CommandPayload {
-    TacticsSet { value: Tactics },
-    RoleOverride { pid: u8, params: RoleParams, ttl: u16 },
-    LoftedPass { tx: f32, ty: f32, loft: f32 },
-    GroundPass { tx: f32, ty: f32 },
-    Shoot { tx: f32, ty: f32, power: f32 },
-}
-
 pub struct ParsedCommand {
     pub apply_tick: u32,
     pub cmd: Cmd,
 }
 
+#[derive(Debug)]
+pub enum ParseError {
+    JsError(String),
+    DeserializeError(String),
+}
+
+impl From<serde_wasm_bindgen::Error> for ParseError {
+    fn from(err: serde_wasm_bindgen::Error) -> Self {
+        ParseError::DeserializeError(err.to_string())
+    }
+}
+
+#[derive(Deserialize)]
+struct CommandFields {
+    #[serde(rename = "apply_tick")]
+    apply_tick: u32,
+    #[serde(rename = "type")]
+    ty: String,
+}
+
+#[derive(Deserialize)]
+struct TacticsCmd {
+    tactics: Tactics,
+}
+
+#[derive(Deserialize)]
+struct RoleOverrideCmd {
+    pid: u8,
+    params: RoleParams,
+    ttl: u16,
+}
+
+#[derive(Deserialize)]
+struct LoftedPassCmd {
+    tx: f32,
+    ty: f32,
+    loft: f32,
+}
+
+#[derive(Deserialize)]
+struct GroundPassCmd {
+    tx: f32,
+    ty: f32,
+}
+
+#[derive(Deserialize)]
+struct ShootCmd {
+    tx: f32,
+    ty: f32,
+    power: f32,
+}
+
+#[derive(Deserialize)]
+struct MovePlayerCmd {
+    pid: u8,
+    #[serde(default)]
+    vx: Option<f32>,
+    #[serde(default)]
+    vy: Option<f32>,
+    #[serde(default)]
+    tx: Option<f32>,
+    #[serde(default)]
+    ty: Option<f32>,
+}
+
+pub fn parse_command(js_value: JsValue) -> Result<ParsedCommand, ParseError> {
+    let fields: CommandFields = serde_wasm_bindgen::from_value(js_value.clone())
+        .map_err(|e| ParseError::DeserializeError(e.to_string()))?;
+
+    let cmd = match fields.ty.as_str() {
+        "tactics_set" => {
+            let val: TacticsCmd = serde_wasm_bindgen::from_value(js_value)?;
+            Cmd::TacticsSet(val.tactics)
+        }
+        "role_override" => {
+            let val: RoleOverrideCmd = serde_wasm_bindgen::from_value(js_value)?;
+            if val.pid >= N_PLAYERS as u8 {
+                return Err(ParseError::DeserializeError("invalid pid".to_string()));
+            }
+            Cmd::RoleOverride {
+                pid: val.pid,
+                params: val.params,
+                ttl: val.ttl,
+            }
+        }
+        "lofted_pass" => {
+            let val: LoftedPassCmd = serde_wasm_bindgen::from_value(js_value)?;
+            Cmd::LoftedPass {
+                tx: val.tx,
+                ty: val.ty,
+                loft: val.loft,
+            }
+        }
+        "ground_pass" => {
+            let val: GroundPassCmd = serde_wasm_bindgen::from_value(js_value)?;
+            Cmd::GroundPass {
+                tx: val.tx,
+                ty: val.ty,
+            }
+        }
+        "shoot" => {
+            let val: ShootCmd = serde_wasm_bindgen::from_value(js_value)?;
+            Cmd::Shoot {
+                tx: val.tx,
+                ty: val.ty,
+                power: val.power,
+            }
+        }
+        "move_player" => {
+            let val: MovePlayerCmd = serde_wasm_bindgen::from_value(js_value)?;
+            if val.pid >= N_PLAYERS as u8 {
+                return Err(ParseError::DeserializeError("invalid pid".to_string()));
+            }
+            match (val.vx, val.vy, val.tx, val.ty) {
+                (Some(vx), Some(vy), _, _) => Cmd::MovePlayerVelocity {
+                    pid: val.pid,
+                    vx,
+                    vy,
+                },
+                (_, _, Some(tx), Some(ty)) => Cmd::MovePlayerTarget {
+                    pid: val.pid,
+                    tx,
+                    ty,
+                },
+                _ => {
+                    return Err(ParseError::DeserializeError(
+                        "move_player requires either vx/vy or tx/ty".to_string(),
+                    ));
+                }
+            }
+        }
+        _ => {
+            return Err(ParseError::DeserializeError(format!(
+                "unknown command type: {}",
+                fields.ty
+            )))
+        }
+    };
+
+    Ok(ParsedCommand {
+        apply_tick: fields.apply_tick,
+        cmd,
+    })
+}
+
+const MAX_COMMANDS: usize = 256;
+
+#[derive(Debug)]
+pub enum CommandError {
+    Full,
+}
+
+#[derive(Debug)]
+pub struct CommandBuffer {
+    cmds: [Option<ParsedCommand>; MAX_COMMANDS],
+    len: usize,
+}
+
 impl CommandBuffer {
     pub fn new() -> Self {
-        Self::default()
+        const EMPTY: Option<ParsedCommand> = None;
+        Self {
+            cmds: [EMPTY; MAX_COMMANDS],
+            len: 0,
+        }
     }
 
     pub fn push(
         &mut self,
-        now_tick: u32,
+        current_tick: u32,
         apply_tick: u32,
         cmd: Cmd,
     ) -> Result<(), CommandError> {
-        if apply_tick <= now_tick {
-            return Err(CommandError::PastTick);
+        if self.len >= MAX_COMMANDS {
+            return Err(CommandError::Full);
         }
-
-        self.enforce_rate_limit(now_tick)?;
-        if matches!(cmd, Cmd::TacticsSet(_)) {
-            self.enforce_tactics_cooldown(now_tick, apply_tick)?;
+        if apply_tick < current_tick {
+            return Ok(());
         }
-
-        if !validate_command(&cmd) {
-            return Err(CommandError::OutOfBounds);
-        }
-
-        self.queue.push(ScheduledCmd { apply_tick, cmd });
+        self.cmds[self.len] = Some(ParsedCommand { apply_tick, cmd });
+        self.len += 1;
         Ok(())
     }
 
-    pub fn drain_ready(&mut self, current_tick: u32) -> impl Iterator<Item = Cmd> {
-        let mut ready = Vec::new();
-        let mut pending = Vec::new();
-        for item in self.queue.drain(..) {
-            if item.apply_tick <= current_tick {
-                ready.push(item.cmd);
-            } else {
-                pending.push(item);
-            }
-        }
-        self.queue = pending;
-        ready.into_iter()
-    }
-
-    fn enforce_rate_limit(&mut self, now_tick: u32) -> Result<(), CommandError> {
-        let bucket = now_tick / TICKS_PER_SECOND;
-        if let Some(prev_bucket) = self.last_second_bucket {
-            if prev_bucket == bucket {
-                if self.bucket_count >= RATE_LIMIT_PER_SECOND {
-                    return Err(CommandError::RateLimited);
+    pub fn drain_ready(&mut self, tick: u32) -> impl Iterator<Item = Cmd> + '_ {
+        let mut i = 0;
+        std::iter::from_fn(move || {
+            while i < self.len {
+                let command_apply_tick = self.cmds[i].as_ref().unwrap().apply_tick;
+                if command_apply_tick <= tick {
+                    let extracted = self.cmds[i].take();
+                    self.cmds.swap(i, self.len - 1);
+                    self.len -= 1;
+                    return Some(extracted.unwrap().cmd);
+                } else {
+                    i += 1;
                 }
-                self.bucket_count += 1;
-            } else {
-                self.last_second_bucket = Some(bucket);
-                self.bucket_count = 1;
             }
-        } else {
-            self.last_second_bucket = Some(bucket);
-            self.bucket_count = 1;
-        }
-        Ok(())
+            None
+        })
     }
-
-    fn enforce_tactics_cooldown(
-        &mut self,
-         _now_tick: u32,
-        apply_tick: u32,
-    ) -> Result<(), CommandError> {
-        if let Some(last_tick) = self.last_tactics_tick {
-            if apply_tick < last_tick + TACTICS_COOLDOWN_TICKS {
-                return Err(CommandError::TacticsCooldown);
-            }
-        }
-        self.last_tactics_tick = Some(apply_tick);
-        Ok(())
-    }
-}
-
-fn validate_command(cmd: &Cmd) -> bool {
-    match cmd {
-        Cmd::TacticsSet(t) => {
-            let clamped = t.clone().clamp();
-            (clamped.line_height - t.line_height).abs() < f32::EPSILON
-                && (clamped.press_intensity - t.press_intensity).abs() < f32::EPSILON
-        }
-        Cmd::RoleOverride { pid, ttl, .. } => *pid < crate::state::N_PLAYERS as u8 && *ttl > 0,
-        Cmd::LoftedPass { tx, ty, loft } => in_pitch_bounds(*tx, *ty) && (0.0..=1.0).contains(loft),
-        Cmd::GroundPass { tx, ty } => in_pitch_bounds(*tx, *ty),
-        Cmd::Shoot { tx, ty, power } => in_pitch_bounds(*tx, *ty) && (0.0..=1.0).contains(power),
-    }
-}
-
-fn in_pitch_bounds(x: f32, y: f32) -> bool {
-    let half_w = PITCH_W * 0.5 + POSITION_EPS;
-    let half_h = PITCH_H * 0.5 + POSITION_EPS;
-    x.abs() <= half_w && y.abs() <= half_h
-}
-
-pub fn parse_command(value: JsValue) -> Result<ParsedCommand, ParseError> {
-    let envelope: CommandEnvelope = from_value(value).map_err(|e| ParseError::Serde(e.to_string()))?;
-    let cmd = match envelope.payload {
-        CommandPayload::TacticsSet { value } => Cmd::TacticsSet(value.clamp()),
-        CommandPayload::RoleOverride { pid, params, ttl } => Cmd::RoleOverride { pid, params, ttl },
-        CommandPayload::LoftedPass { tx, ty, loft } => Cmd::LoftedPass { tx, ty, loft },
-        CommandPayload::GroundPass { tx, ty } => Cmd::GroundPass { tx, ty },
-        CommandPayload::Shoot { tx, ty, power } => Cmd::Shoot { tx, ty, power },
-    };
-    Ok(ParsedCommand {
-        apply_tick: envelope.apply_tick,
-        cmd,
-    })
 }

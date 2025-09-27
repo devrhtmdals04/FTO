@@ -2,7 +2,7 @@ use crate::ai::actions::dribble_action::DribbleAction;
 use crate::ai::actions::off_the_ball_action::OffTheBallAction;
 use crate::ai::actions::pass_action::PassAction;
 use crate::ai::actions::shoot_action::ShootAction;
-use crate::ai::perception::{build_perception, Perception, PassTarget};
+use crate::ai::perception::{build_perception, PassTarget, Perception};
 use crate::commands::Cmd;
 use crate::state::World;
 use crate::types::Vec2;
@@ -45,9 +45,15 @@ pub trait Action {
 #[derive(Default)]
 struct IdleAction;
 impl Action for IdleAction {
-    fn begin(&mut self, _context: &mut ActionContext, _payload: &ActionPayload) -> Option<Cmd> { None }
-    fn update(&mut self, _context: &mut ActionContext) -> ActionUpdate { ActionUpdate::None }
-    fn is_done(&self) -> bool { true }
+    fn begin(&mut self, _context: &mut ActionContext, _payload: &ActionPayload) -> Option<Cmd> {
+        None
+    }
+    fn update(&mut self, _context: &mut ActionContext) -> ActionUpdate {
+        ActionUpdate::None
+    }
+    fn is_done(&self) -> bool {
+        true
+    }
 }
 
 // The Finite State Machine for a single player.
@@ -86,7 +92,10 @@ impl PlayerFSM {
         };
 
         if current_action_is_done {
-            info!("[Player {}] Action {:?} finished. Returning to Idle.", player_index, self.state);
+            info!(
+                "[Player {}] Action {:?} finished. Returning to Idle.",
+                player_index, self.state
+            );
             self.state = State::Idle;
         }
 
@@ -119,7 +128,10 @@ impl PlayerFSM {
         context: &mut ActionContext,
         payload: &ActionPayload,
     ) -> Option<Cmd> {
-        info!("[Player {}] State transition: {:?} -> {:?}", context.player_index, self.state, new_state);
+        info!(
+            "[Player {}] State transition: {:?} -> {:?}",
+            context.player_index, self.state, new_state
+        );
         self.state = new_state;
         match self.state {
             State::Idle => self.idle_action.begin(context, payload),
@@ -197,10 +209,11 @@ fn score_pass(p: &Perception) -> PassInfo {
             best: None,
         };
     }
-    let best_target = p
-        .open_pass_targets
-        .iter()
-        .max_by(|a, b| eval_pass_target(a).partial_cmp(&eval_pass_target(b)).unwrap());
+    let best_target = p.open_pass_targets.iter().max_by(|a, b| {
+        eval_pass_target(a)
+            .partial_cmp(&eval_pass_target(b))
+            .unwrap()
+    });
     match best_target {
         Some(target) => PassInfo {
             score: eval_pass_target(target),
