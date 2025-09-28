@@ -8,13 +8,14 @@ pub struct PassAction {
 }
 
 impl Action for PassAction {
-    fn begin(&mut self, _context: &mut ActionContext, payload: &ActionPayload) -> Option<Cmd> {
+    fn begin(&mut self, context: &mut ActionContext, payload: &ActionPayload) -> Option<Cmd> {
         if let ActionPayload::Pass(target) = payload {
             self.timer = 20; // Duration of the pass action
 
             // Create a ground pass command towards the target player's position.
             let pass_target_pos = target.mate.pos;
             Some(Cmd::GroundPass {
+                player_id: context.player_index as u8,
                 tx: pass_target_pos.x,
                 ty: pass_target_pos.y,
             })

@@ -7,7 +7,7 @@ export class Ball {
 
   constructor() {
     const geometry = new THREE.SphereGeometry(WORLD.BALL.R, 16, 16);
-    const material = new THREE.MeshStandardMaterial({ color: 0xffffff });
+    const material = new THREE.MeshStandardMaterial({ color: 0xffff00 });
     this.mesh = new THREE.Mesh(geometry, material);
     this.mesh.castShadow = true;
   }
@@ -15,6 +15,6 @@ export class Ball {
   update(state: BallView) {
     // state.y from the 2D view is the z in the 3D scene.
     // state.z from the 2D view (height) is the y in the 3D scene.
-    this.mesh.position.set(state.x, state.z, state.y);
+    this.mesh.position.set(state.x, state.z + WORLD.BALL.R, state.y);
   }
 }

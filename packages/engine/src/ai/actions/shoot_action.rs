@@ -14,6 +14,7 @@ impl Action for ShootAction {
         // Create a shoot command towards the opponent's goal center.
         // A more advanced implementation could aim for the most open part of the goal.
         Some(Cmd::Shoot {
+            player_id: context.player_index as u8,
             tx: context.perception.opp_goal.center.x,
             ty: context.perception.opp_goal.center.y,
             power: 0.8, // Default high power

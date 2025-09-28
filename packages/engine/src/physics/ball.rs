@@ -1,4 +1,4 @@
-use crate::params::{DT, E_Z, G, MU_AIR, MU_BOUNCE, MU_GROUND, PITCH_H, PITCH_W, VZ_MIN};
+use crate::params::{DT, E_Z, G, MU_AIR, MU_BOUNCE, PITCH_H, PITCH_W, VZ_MIN, MU_GROUND_STATIC, MU_GROUND_KINETIC, FRICTION_V_REF};
 use crate::physics::collisions::reflect;
 use crate::spatial::SpatialHash;
 use crate::state::{World, N_PLAYERS};
@@ -20,7 +20,9 @@ fn step_ground_ball(world: &mut World) {
     let mut vy = world.bvy;
     let speed = (vx * vx + vy * vy).sqrt();
     if speed > 0.0 {
-        let friction = MU_GROUND * dt;
+        let friction_factor = (1.0 - speed / FRICTION_V_REF).clamp(0.0, 1.0);
+        let mu_dynamic = MU_GROUND_KINETIC + (MU_GROUND_STATIC - MU_GROUND_KINETIC) * friction_factor;
+        let friction = mu_dynamic * dt;
         let damping = (1.0 - friction).clamp(0.0, 1.0);
         vx *= damping;
         vy *= damping;

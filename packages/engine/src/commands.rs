@@ -13,15 +13,18 @@ pub enum Cmd {
         ttl: u16,
     },
     LoftedPass {
+        player_id: u8,
         tx: f32,
         ty: f32,
         loft: f32,
     },
     GroundPass {
+        player_id: u8,
         tx: f32,
         ty: f32,
     },
     Shoot {
+        player_id: u8,
         tx: f32,
         ty: f32,
         power: f32,
@@ -78,6 +81,7 @@ struct RoleOverrideCmd {
 
 #[derive(Deserialize)]
 struct LoftedPassCmd {
+    pid: u8,
     tx: f32,
     ty: f32,
     loft: f32,
@@ -85,12 +89,14 @@ struct LoftedPassCmd {
 
 #[derive(Deserialize)]
 struct GroundPassCmd {
+    pid: u8,
     tx: f32,
     ty: f32,
 }
 
 #[derive(Deserialize)]
 struct ShootCmd {
+    pid: u8,
     tx: f32,
     ty: f32,
     power: f32,
@@ -132,6 +138,7 @@ pub fn parse_command(js_value: JsValue) -> Result<ParsedCommand, ParseError> {
         "lofted_pass" => {
             let val: LoftedPassCmd = serde_wasm_bindgen::from_value(js_value)?;
             Cmd::LoftedPass {
+                player_id: val.pid,
                 tx: val.tx,
                 ty: val.ty,
                 loft: val.loft,
@@ -140,6 +147,7 @@ pub fn parse_command(js_value: JsValue) -> Result<ParsedCommand, ParseError> {
         "ground_pass" => {
             let val: GroundPassCmd = serde_wasm_bindgen::from_value(js_value)?;
             Cmd::GroundPass {
+                player_id: val.pid,
                 tx: val.tx,
                 ty: val.ty,
             }
@@ -147,6 +155,7 @@ pub fn parse_command(js_value: JsValue) -> Result<ParsedCommand, ParseError> {
         "shoot" => {
             let val: ShootCmd = serde_wasm_bindgen::from_value(js_value)?;
             Cmd::Shoot {
+                player_id: val.pid,
                 tx: val.tx,
                 ty: val.ty,
                 power: val.power,

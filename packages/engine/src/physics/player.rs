@@ -30,6 +30,26 @@ fn integrate_player(world: &mut World, idx: usize, dt: f32) {
     pos += vel * dt;
     clamp_to_pitch(&mut pos);
 
+    if world.player_has_ball(idx) {
+        let player_heading = world.pfacing[idx];
+        const R_BALL: f32 = 0.11; // Ball radius
+        let control_dist = R_BODY + R_BALL;
+
+        // Target for the ball is right in front of the player's new position
+        let ball_target_pos = pos + Vec2::new(player_heading.cos(), player_heading.sin()) * control_dist;
+
+        // Nudge the ball towards this target
+        let current_ball_pos = world.ball_pos();
+        let required_ball_vel = (ball_target_pos - current_ball_pos) / dt;
+
+        // Don't make it too fast, should be related to player's speed
+        let max_ball_speed = vel.norm() * 1.2 + 1.0; // A bit faster than player
+        let final_ball_vel = required_ball_vel.clamp_norm(max_ball_speed);
+
+        world.bvx = final_ball_vel.x;
+        world.bvy = final_ball_vel.y;
+    }
+
     world.set_player_pos(idx, pos);
     world.set_player_vel(idx, vel);
 
@@ -49,8 +69,20 @@ fn clamp_vector(vec: Vec2, max_len: f32) -> Vec2 {
 fn clamp_to_pitch(pos: &mut Vec2) {
     let half_w = PITCH_W * 0.5 - R_BODY;
     let half_h = PITCH_H * 0.5 - R_BODY;
-    pos.x = pos.x.clamp(-half_w, half_h);
+    let half_goal_w = crate::params::GOAL_W * 0.5;
+
+    // Clamp Y coordinate
     pos.y = pos.y.clamp(-half_h, half_h);
+
+    // If player is within the Y-range of the goal, allow them to go behind the line
+    if pos.y.abs() < half_goal_w {
+        // Allow them to go, for example, 2m behind the goal line
+        let goal_depth = 2.0;
+        pos.x = pos.x.clamp(-half_w - goal_depth, half_w + goal_depth);
+    } else {
+        // Otherwise, clamp to the normal pitch width
+        pos.x = pos.x.clamp(-half_w, half_w);
+    }
 }
 
 fn update_facing(world: &mut World, idx: usize, vel: Vec2, omega_max: f32, dt: f32) {

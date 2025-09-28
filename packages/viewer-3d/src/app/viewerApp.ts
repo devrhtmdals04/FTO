@@ -630,6 +630,14 @@ export class ViewerApp {
     panel.style.display = 'block';
   }
 
+  private playerHasBall(): boolean {
+    if (this.selectedProfileIndex === null) {
+      return false;
+    }
+    const player = this.curr.players[this.selectedProfileIndex];
+    return player ? player.has_ball : false;
+  }
+
   private createDebugHotkeys(): DebugHotkey[] {
     return [
       {
@@ -674,28 +682,61 @@ export class ViewerApp {
         keyLabel: 'J',
         description: 'Queue Shoot Command',
         handler: () => {
+          if (this.selectedProfileIndex === null) return;
           const tick = this.curr.tick;
-          this.source.engine.command({ apply_tick: tick + 2, type: 'shoot', tx: 52.5, ty: 0.0, power: 0.8 });
+          this.source.engine.command({
+            apply_tick: tick + 2,
+            type: 'shoot',
+            pid: this.selectedProfileIndex,
+            tx: 52.5,
+            ty: 0.0,
+            power: 1.0,
+          });
         },
         suppressRepeat: true,
-        condition: () => this.currentPlayerCount < MAX_PLAYERS,
+        condition: () => this.isDriveMode && this.playerHasBall(),
       },
       {
         code: 'KeyK',
         keyLabel: 'K',
         description: 'Queue Ground Pass Command',
         handler: () => {
-          const tick = this.curr.tick;
-          const player = this.curr.players[0];
-          this.source.engine.command({
-            apply_tick: tick + 2,
-            type: 'ground_pass',
-            tx: player ? player.x + 15 : 0,
-            ty: player ? player.y : 0,
-          });
+          if (this.selectedProfileIndex === null) return;
+
+          const controlledPlayer = this.curr.players[this.selectedProfileIndex];
+          if (!controlledPlayer) return;
+
+          let closestTeammate = null;
+          let minDistanceSq = Infinity;
+
+          for (let i = 0; i < this.curr.players.length; i++) {
+            if (i === this.selectedProfileIndex) continue;
+            const p = this.curr.players[i];
+            if (p.team !== controlledPlayer.team) continue;
+
+            const dx = p.x - controlledPlayer.x;
+            const dy = p.y - controlledPlayer.y;
+            const distanceSq = dx * dx + dy * dy;
+
+            if (distanceSq < minDistanceSq) {
+              minDistanceSq = distanceSq;
+              closestTeammate = p;
+            }
+          }
+
+          if (closestTeammate) {
+            const tick = this.curr.tick;
+            this.source.engine.command({
+              apply_tick: tick + 2,
+              type: 'ground_pass',
+              pid: this.selectedProfileIndex,
+              tx: closestTeammate.x,
+              ty: closestTeammate.y,
+            });
+          }
         },
         suppressRepeat: true,
-        condition: () => this.currentPlayerCount < MAX_PLAYERS,
+        condition: () => this.isDriveMode && this.playerHasBall(),
       },
     ];
   }

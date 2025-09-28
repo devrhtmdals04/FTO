@@ -29,14 +29,16 @@ pub const OMEGA_MAX: f32 = 8.0;
 pub const G: f32 = 9.81;
 // Coefficient of air resistance for the ball.
 pub const MU_AIR: f32 = 0.01;
-// Coefficient of ground friction for the ball.
-pub const MU_GROUND: f32 = 0.1;
 // Coefficient of friction during a bounce.
 pub const MU_BOUNCE: f32 = 0.10;
 // Coefficient of restitution for bounces (how bouncy the ball is).
 pub const E_Z: f32 = 0.55;
 // Minimum vertical velocity to trigger a bounce.
 pub const VZ_MIN: f32 = 1.0;
+// Dynamic ground friction parameters
+pub const MU_GROUND_STATIC: f32 = 0.30;  // Friction at near-zero speed
+pub const MU_GROUND_KINETIC: f32 = 0.12; // Friction at high speed
+pub const FRICTION_V_REF: f32 = 5.0;     // Speed (m/s) for interpolation
 
 // --- Spatial Hashing Grid for AI ---
 // Number of grid cells along the x-axis.
