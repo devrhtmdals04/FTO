@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-
+import { MatchSetup, PRESET_TACTICS, TacticsStore } from 'tactics';
 import { Ball } from '../scene/ball';
 import { HUD } from '../scene/hud';
 import { createPitch } from '../scene/pitch';
@@ -7,8 +7,6 @@ import { PlayerSystem } from '../scene/player_system';
 import { PlayerProfile, PlayerView, SimView } from '../state';
 import { createEngineBridge } from '../wasm/bridge';
 import { createSceneContext, SceneContext } from './sceneContext';
-
-import { TacticsSettingsRoot, TacticsStore } from 'tactics';
 
 const MAX_PLAYERS = 22;
 const STEP_DT = 1 / 20;
@@ -22,7 +20,7 @@ function createEmptySimView(): SimView {
     y: 0,
     h: [1, 0],
     vis: 1,
-    team: (i < 11 ? 0 : 1),
+    team: i < 11 ? 0 : 1,
     has_ball: false,
   }));
   return { tick: 0, ball: { x: 0, y: 0, z: 0 }, players };
@@ -37,6 +35,9 @@ interface UIElements {
   applyPlayerModelBtn: HTMLElement | null;
   playerProfileSelect: HTMLSelectElement | null;
   debugInfoPanel: HTMLDivElement | null;
+  simControlsPanel: HTMLDivElement | null;
+  homeTacticSelect: HTMLSelectElement | null;
+  awayTacticSelect: HTMLSelectElement | null;
 }
 
 interface DebugHotkey {
@@ -53,13 +54,12 @@ interface DebugHotkey {
 type EngineBridge = ReturnType<typeof createEngineBridge>;
 
 export class ViewerApp {
-  private readonly source: EngineBridge = createEngineBridge();
+  private source: EngineBridge = createEngineBridge();
   private readonly players = new PlayerSystem();
   private readonly ball = new Ball();
   private readonly hud = new HUD();
 
-  private tacticsStore: TacticsStore | null = null;
-  private tacticsRoot: TacticsSettingsRoot | null = null;
+  private matchSetup: MatchSetup | null = null;
 
   private sceneContext!: SceneContext;
   private readonly keyboardState: Record<string, boolean> = {};
@@ -69,7 +69,6 @@ export class ViewerApp {
   private debugHotkeys: DebugHotkey[] = [];
   private readonly generalDebugHotkeys: Array<{ label: string; description: string }> = [
     { label: 'Space', description: 'Toggle Pause' },
-    { label: 'O', description: 'Toggle Tactics Panel' },
   ];
 
   private prev: SimView = createEmptySimView();
@@ -86,24 +85,21 @@ export class ViewerApp {
 
   private isPaused = false;
   private isDriveMode = false;
-  private currentPlayerCount = 1;
+  private currentPlayerCount = MAX_PLAYERS;
   private currentModelUrl: string;
 
-  constructor(private readonly mount: HTMLElement, private readonly doc: Document = document) {
+  constructor(
+    private readonly mount: HTMLElement,
+    private readonly doc: Document = document,
+  ) {
     this.ui = this.resolveUIElements();
-    this.currentModelUrl = (this.ui.playerModelInput?.value?.trim() || DEFAULT_MODEL_URL);
+    this.currentModelUrl = this.ui.playerModelInput?.value?.trim() || DEFAULT_MODEL_URL;
     this.debugHotkeys = this.createDebugHotkeys();
   }
 
   async init(): Promise<void> {
     this.sceneContext = createSceneContext(this.mount);
     this.last = performance.now() / 1000;
-
-    const tacticsMount = this.doc.getElementById('tactics-root');
-    if (tacticsMount instanceof HTMLElement) {
-      this.tacticsStore = new TacticsStore(this.source);
-      this.tacticsRoot = new TacticsSettingsRoot({ mount: tacticsMount, store: this.tacticsStore });
-    }
 
     this.sceneContext.scene.add(createPitch());
     this.sceneContext.scene.add(this.ball.mesh);
@@ -116,20 +112,23 @@ export class ViewerApp {
     this.playerProfiles = this.source.getPlayerProfiles();
     this.populatePlayerProfileSelect();
 
-    const initialCount = this.getRequestedPlayerCount();
-    await this.players.init(initialCount, this.currentModelUrl);
-    this.currentPlayerCount = initialCount;
-    this.syncAiActive(initialCount);
-    this.players.setTeamColor(0, 0x1f77b4);
-    this.players.setTeamColor(1, 0xd62728);
-
-    this.prev = this.source.get();
-    this.curr = this.prev;
-
-    this.updateUIMode(initialCount);
-    this.ensureSelectedProfile();
-    this.updatePlayerIndexMapping();
-    this.renderDebugInfoPanel();
+    const matchSetupMount = this.doc.getElementById('match-setup-root');
+    if (matchSetupMount instanceof HTMLElement) {
+      this.matchSetup = new MatchSetup({
+        mount: matchSetupMount,
+        presets: PRESET_TACTICS,
+        onStart: (params) => {
+          if (this.ui.playerCountInput) {
+            this.ui.playerCountInput.value = MAX_PLAYERS.toString();
+          }
+          void this.restartPlayerSystem(undefined, params);
+        },
+      });
+      this.matchSetup.show();
+    } else {
+      console.error('Match setup mount point not found. Starting default match.');
+      await this.restartPlayerSystem(undefined, { homeTactic: 'Balanced', awayTactic: 'Balanced' });
+    }
   }
 
   start(): void {
@@ -147,8 +146,6 @@ export class ViewerApp {
     this.ui.applyPlayerModelBtn?.removeEventListener('click', this.handleApplyPlayerModel);
     this.ui.playerModelInput?.removeEventListener('keydown', this.handlePlayerModelInputKey);
     this.ui.playerProfileSelect?.removeEventListener('change', this.handleProfileChange);
-
-    this.tacticsRoot?.destroy();
 
     if (this.frameHandle !== null) {
       cancelAnimationFrame(this.frameHandle);
@@ -240,34 +237,25 @@ export class ViewerApp {
   }
 
   private updateDriveMode(): void {
-    if (!this.players.ready) {
-      return;
-    }
-    if (!this.isDriveMode || this.selectedProfileIndex == null) {
+    if (!this.players.ready || !this.isDriveMode || this.selectedProfileIndex == null) {
       return;
     }
 
     const controlledPlayer = this.curr.players[this.selectedProfileIndex];
     const profile = this.playerProfiles[this.selectedProfileIndex];
-    if (!controlledPlayer || !profile) {
-      return;
-    }
+    if (!controlledPlayer || !profile) return;
 
     const maxSpeed = profile.pace * 0.1;
     const forwardInput = (this.keyboardState['KeyW'] ? 1 : 0) + (this.keyboardState['KeyS'] ? -1 : 0);
     const strafeInput = (this.keyboardState['KeyD'] ? 1 : 0) + (this.keyboardState['KeyA'] ? -1 : 0);
 
-    const forwardDir = new THREE.Vector2(controlledPlayer.h[0], controlledPlayer.h[1]);
-    if (forwardDir.lengthSq() < 1e-6) {
-      forwardDir.set(0, 1);
-    } else {
-      forwardDir.normalize();
-    }
+    const forwardDir = new THREE.Vector2(controlledPlayer.h[0], controlledPlayer.h[1]).normalize();
     const rightDir = new THREE.Vector2(-forwardDir.y, forwardDir.x);
 
-    const moveInput = new THREE.Vector2(0, 0)
+    const moveInput = new THREE.Vector2()
       .add(forwardDir.clone().multiplyScalar(forwardInput))
       .add(rightDir.clone().multiplyScalar(strafeInput));
+
     const playerPos2D = new THREE.Vector2(controlledPlayer.x, controlledPlayer.y);
     let commandTarget = playerPos2D.clone();
     let moveDir: THREE.Vector2 | null = null;
@@ -277,29 +265,15 @@ export class ViewerApp {
       const lookAhead = Math.max(maxSpeed * DRIVE_LOOKAHEAD_SECONDS, 2.0);
       commandTarget = playerPos2D.clone().add(moveDir.clone().multiplyScalar(lookAhead));
       this.driveTarget = commandTarget.clone();
-      if (this.selectedProfileIndex != null) {
-        this.players.setMoveTarget(
-          this.selectedProfileIndex,
-          new THREE.Vector3(commandTarget.x, 0, commandTarget.y),
-          moveDir,
-        );
-      }
+      this.players.setMoveTarget(
+        this.selectedProfileIndex,
+        new THREE.Vector3(commandTarget.x, 0, commandTarget.y),
+        moveDir,
+      );
     } else {
       this.driveTarget = null;
-      if (this.selectedProfileIndex != null) {
-        this.players.setMoveTarget(this.selectedProfileIndex, null);
-      }
+      this.players.setMoveTarget(this.selectedProfileIndex, null);
     }
-
-    console.log({
-      driveMode: this.isDriveMode,
-      selectedPid: this.selectedProfileIndex,
-      forwardInput,
-      strafeInput,
-      moveInput: { x: moveInput.x, y: moveInput.y },
-      commandTarget: { x: commandTarget.x, y: commandTarget.y },
-      tick: this.curr.tick,
-    });
 
     this.source.engine.command({
       type: 'move_player',
@@ -366,9 +340,7 @@ export class ViewerApp {
   };
 
   private readonly handleKeyDown = (event: KeyboardEvent) => {
-    if (event.target instanceof HTMLInputElement) {
-      return;
-    }
+    if (event.target instanceof HTMLInputElement) return;
 
     this.keyboardState[event.code] = true;
 
@@ -379,22 +351,14 @@ export class ViewerApp {
     }
 
     const matchedHotkey = this.debugHotkeys.find((hotkey) => {
-      if (hotkey.code !== event.code) {
-        return false;
-      }
-      if (hotkey.suppressRepeat !== false && event.repeat) {
-        return false;
-      }
-      if (hotkey.condition && !hotkey.condition()) {
-        return false;
-      }
+      if (hotkey.code !== event.code) return false;
+      if (hotkey.suppressRepeat !== false && event.repeat) return false;
+      if (hotkey.condition && !hotkey.condition()) return false;
       return true;
     });
 
     if (matchedHotkey) {
-      if (matchedHotkey.preventDefault !== false) {
-        event.preventDefault();
-      }
+      if (matchedHotkey.preventDefault !== false) event.preventDefault();
       const result = matchedHotkey.handler();
       if (result instanceof Promise) {
         void result.catch((err) => console.error('Debug hotkey failed', err));
@@ -407,38 +371,46 @@ export class ViewerApp {
   };
 
   private readonly handleApplyPlayerCount = () => {
-    void this.restartPlayerSystem().catch(err => console.error('Failed to restart player system', err));
+    void this.restartPlayerSystem().catch((err) => console.error('Failed to restart player system', err));
   };
 
   private readonly handleApplyPlayerModel = () => {
     const desiredUrl = this.ui.playerModelInput?.value?.trim();
-    void this.restartPlayerSystem(desiredUrl).catch(err => console.error('Failed to apply player model', err));
+    void this.restartPlayerSystem(desiredUrl).catch((err) => console.error('Failed to apply player model', err));
   };
 
   private readonly handlePlayerModelInputKey = (event: KeyboardEvent) => {
     if (event.key === 'Enter') {
       event.preventDefault();
       const desiredUrl = this.ui.playerModelInput?.value?.trim();
-      void this.restartPlayerSystem(desiredUrl).catch(err => console.error('Failed to apply player model', err));
+      void this.restartPlayerSystem(desiredUrl).catch((err) => console.error('Failed to apply player model', err));
     }
   };
 
   private readonly handleProfileChange = () => {
     const value = this.ui.playerProfileSelect?.value;
-    if (!value) {
-      return;
-    }
+    if (!value) return;
     const idx = parseInt(value, 10);
-    if (Number.isNaN(idx)) {
-      return;
-    }
+    if (Number.isNaN(idx)) return;
     this.setSelectedProfileIndex(idx, false);
   };
 
-  private async restartPlayerSystem(modelUrlOverride?: string): Promise<void> {
+  private async restartPlayerSystem(
+    modelUrlOverride?: string,
+    tactics?: { homeTactic: string; awayTactic: string },
+  ): Promise<void> {
+    this.source = createEngineBridge();
     await this.source.ready();
 
     const requestedCount = this.getRequestedPlayerCount();
+
+    if (requestedCount === MAX_PLAYERS && tactics) {
+      const homeTactic = PRESET_TACTICS[tactics.homeTactic];
+      const awayTactic = PRESET_TACTICS[tactics.awayTactic];
+      if (homeTactic) this.source.engine.command({ type: 'tactics_set', team_id: 0, tactics: homeTactic });
+      if (awayTactic) this.source.engine.command({ type: 'tactics_set', team_id: 1, tactics: awayTactic });
+    }
+
     const previousUrl = this.players.getModelUrl();
     const effectiveUrl = (modelUrlOverride ?? this.currentModelUrl).trim() || DEFAULT_MODEL_URL;
 
@@ -455,11 +427,9 @@ export class ViewerApp {
       console.error(`Failed to load player model from '${effectiveUrl}'`, err);
       if (previousUrl && previousUrl !== effectiveUrl) {
         this.currentModelUrl = previousUrl;
-        if (this.ui.playerModelInput) {
-          this.ui.playerModelInput.value = previousUrl;
-        }
+        if (this.ui.playerModelInput) this.ui.playerModelInput.value = previousUrl;
         await this.players.init(requestedCount, previousUrl);
-        if (typeof window !== 'undefined' && typeof window.alert === 'function') {
+        if (typeof window.alert === 'function') {
           window.alert(`Failed to load model from "${effectiveUrl}". Reverting to "${previousUrl}".`);
         }
       } else {
@@ -476,12 +446,11 @@ export class ViewerApp {
     this.ensureSelectedProfile();
     this.updatePlayerIndexMapping();
     this.renderDebugInfoPanel();
+    this.start();
   }
 
   private updatePlayerIndexMapping(): void {
-    if (!this.players.ready) {
-      return;
-    }
+    if (!this.players.ready) return;
     this.players.resetPlayerIndexMap();
     if (this.currentPlayerCount < MAX_PLAYERS && this.selectedProfileIndex != null) {
       this.players.setPlayerIndex(0, this.selectedProfileIndex);
@@ -507,17 +476,11 @@ export class ViewerApp {
 
   private setSelectedProfileIndex(index: number | null, updateSelect = true): void {
     const previous = this.selectedProfileIndex;
-    if (previous === index) {
-      return;
-    }
+    if (previous === index) return;
 
     if (this.isDriveMode) {
-      if (previous != null) {
-        this.source.engine.set_ai_active(previous, true);
-      }
-      if (index != null) {
-        this.source.engine.set_ai_active(index, false);
-      }
+      if (previous != null) this.source.engine.set_ai_active(previous, true);
+      if (index != null) this.source.engine.set_ai_active(index, false);
     }
 
     this.selectedProfileIndex = index;
@@ -525,42 +488,15 @@ export class ViewerApp {
     if (updateSelect && this.ui.playerProfileSelect) {
       this.ui.playerProfileSelect.value = index != null ? index.toString() : '';
     }
-    if (previous != null) {
-      this.players.setMoveTarget(previous, null);
-    }
-    if (index != null) {
-      if (this.driveTarget) {
-        const player = this.curr.players[index];
-        const target2D = new THREE.Vector2(this.driveTarget.x, this.driveTarget.y);
-        let dir: THREE.Vector2 | null = null;
-        if (player) {
-          dir = new THREE.Vector2(target2D.x - player.x, target2D.y - player.y);
-          if (dir.lengthSq() > 1e-6) {
-            dir.normalize();
-          } else {
-            dir = null;
-          }
-        }
-        this.players.setMoveTarget(
-          index,
-          new THREE.Vector3(target2D.x, 0, target2D.y),
-          dir ?? undefined,
-        );
-      } else {
-        this.players.setMoveTarget(index, null);
-      }
-    }
     this.updatePlayerIndexMapping();
     this.renderDebugInfoPanel();
   }
 
   private populatePlayerProfileSelect(): void {
     const select = this.ui.playerProfileSelect;
-    if (!select) {
-      return;
-    }
+    if (!select) return;
     select.innerHTML = '';
-    this.playerProfiles.forEach(profile => {
+    this.playerProfiles.forEach((profile) => {
       const option = document.createElement('option');
       const shirtNumber = (profile.index % 11) + 1;
       const teamLabel = profile.team === 0 ? 'Home' : 'Away';
@@ -577,31 +513,26 @@ export class ViewerApp {
     const isDebug = count < MAX_PLAYERS;
     if (this.ui.modeIndicator) {
       const suffix = count > 1 ? 's' : '';
-      this.ui.modeIndicator.textContent = isDebug
-        ? `Debug Mode (${count} player${suffix})`
-        : 'Simulation Mode';
+      this.ui.modeIndicator.textContent = isDebug ? `Debug Mode (${count} player${suffix})` : 'Simulation Mode';
     }
     if (this.ui.debugControls) {
       this.ui.debugControls.style.display = isDebug ? 'block' : 'none';
     }
+    if (this.ui.simControlsPanel) {
+      this.ui.simControlsPanel.style.display = isDebug ? 'none' : 'block';
+    }
     if (!isDebug) {
       this.setDriveMode(false);
     }
-    if (!isDebug && this.ui.debugInfoPanel) {
-      this.ui.debugInfoPanel.style.display = 'none';
-    }
+    this.renderDebugInfoPanel();
   }
 
   private renderDebugInfoPanel(): void {
     const panel = this.ui.debugInfoPanel;
-    if (!panel) {
-      return;
-    }
-    if (!this.players.isMasterDebug || this.selectedProfileIndex == null) {
+    if (!panel) return;
+
+    if (this.currentPlayerCount === MAX_PLAYERS || this.selectedProfileIndex == null) {
       panel.style.display = 'none';
-      if (this.selectedProfileIndex != null) {
-        this.players.setMoveTarget(this.selectedProfileIndex, null);
-      }
       return;
     }
 
@@ -647,9 +578,7 @@ export class ViewerApp {
   }
 
   private playerHasBall(): boolean {
-    if (this.selectedProfileIndex === null) {
-      return false;
-    }
+    if (this.selectedProfileIndex === null) return false;
     const player = this.curr.players[this.selectedProfileIndex];
     return player ? player.has_ball : false;
   }
@@ -664,22 +593,32 @@ export class ViewerApp {
         suppressRepeat: true,
       },
       {
-        code: 'KeyO',
-        keyLabel: 'O',
-        description: 'Toggle Tactics Panel',
-        handler: async () => {
-          await this.tacticsStore?.openAndEnsureTactic();
-        },
-        suppressRepeat: true,
-        showInPanel: true,
-      },
-      {
         code: 'KeyT',
         keyLabel: 'T',
         description: 'Toggle Drive Mode',
         handler: () => this.setDriveMode(!this.isDriveMode),
         suppressRepeat: true,
         condition: () => this.currentPlayerCount < MAX_PLAYERS && this.selectedProfileIndex != null,
+        showInPanel: true,
+      },
+      {
+        code: 'KeyJ',
+        keyLabel: 'J',
+        description: 'Queue Shoot Command',
+        handler: () => {
+          if (this.selectedProfileIndex === null) return;
+          this.source.engine.command({
+            apply_tick: this.curr.tick + 2,
+            type: 'shoot',
+            pid: this.selectedProfileIndex,
+            tx: 52.5,
+            ty: 0.0,
+            power: 1.0,
+          });
+        },
+        suppressRepeat: true,
+        condition: () => this.isDriveMode && this.playerHasBall(),
+        showInPanel: true,
       },
       {
         code: 'Digit1',
@@ -691,6 +630,7 @@ export class ViewerApp {
         },
         suppressRepeat: true,
         condition: () => this.players.isMasterDebug,
+        showInPanel: true,
       },
       {
         code: 'Digit2',
@@ -702,103 +642,37 @@ export class ViewerApp {
         },
         suppressRepeat: true,
         condition: () => this.players.isMasterDebug,
-      },
-      {
-        code: 'KeyJ',
-        keyLabel: 'J',
-        description: 'Queue Shoot Command',
-        handler: () => {
-          if (this.selectedProfileIndex === null) return;
-          const tick = this.curr.tick;
-          this.source.engine.command({
-            apply_tick: tick + 2,
-            type: 'shoot',
-            pid: this.selectedProfileIndex,
-            tx: 52.5,
-            ty: 0.0,
-            power: 1.0,
-          });
-        },
-        suppressRepeat: true,
-        condition: () => this.isDriveMode && this.playerHasBall(),
-      },
-      {
-        code: 'KeyK',
-        keyLabel: 'K',
-        description: 'Queue Ground Pass Command',
-        handler: () => {
-          if (this.selectedProfileIndex === null) return;
-
-          const controlledPlayer = this.curr.players[this.selectedProfileIndex];
-          if (!controlledPlayer) return;
-
-          let closestTeammate = null;
-          let minDistanceSq = Infinity;
-
-          for (let i = 0; i < this.curr.players.length; i++) {
-            if (i === this.selectedProfileIndex) continue;
-            const p = this.curr.players[i];
-            if (p.team !== controlledPlayer.team) continue;
-
-            const dx = p.x - controlledPlayer.x;
-            const dy = p.y - controlledPlayer.y;
-            const distanceSq = dx * dx + dy * dy;
-
-            if (distanceSq < minDistanceSq) {
-              minDistanceSq = distanceSq;
-              closestTeammate = p;
-            }
-          }
-
-          if (closestTeammate) {
-            const tick = this.curr.tick;
-            this.source.engine.command({
-              apply_tick: tick + 2,
-              type: 'ground_pass',
-              pid: this.selectedProfileIndex,
-              tx: closestTeammate.x,
-              ty: closestTeammate.y,
-            });
-          }
-        },
-        suppressRepeat: true,
-        condition: () => this.isDriveMode && this.playerHasBall(),
+        showInPanel: true,
       },
     ];
   }
 
   private async handleMasterDebugToggle(): Promise<void> {
-    const enteringDebug = !this.players.isMasterDebug;
+    const enteringDebug = this.currentPlayerCount === MAX_PLAYERS;
+    this.players.toggleMasterDebug(enteringDebug);
     if (this.ui.playerCountInput) {
       this.ui.playerCountInput.value = enteringDebug ? '1' : MAX_PLAYERS.toString();
     }
     await this.restartPlayerSystem();
-    this.players.toggleMasterDebug(enteringDebug);
-    this.renderDebugInfoPanel();
   }
 
   private setDriveMode(enabled: boolean): void {
-    if (enabled === this.isDriveMode) {
-      return;
-    }
+    if (enabled === this.isDriveMode) return;
     this.isDriveMode = enabled;
     this.sceneContext.controls.enabled = !enabled;
-    if (enabled && this.isPaused) {
-      this.isPaused = false;
-    }
+    if (enabled && this.isPaused) this.isPaused = false;
     this.driveTarget = null;
     if (this.selectedProfileIndex != null) {
       this.source.engine.set_ai_active(this.selectedProfileIndex, !enabled);
       this.players.setMoveTarget(this.selectedProfileIndex, null);
     }
+    this.renderDebugInfoPanel();
   }
 
   private getRequestedPlayerCount(): number {
     const rawValue = this.ui.playerCountInput?.value ?? '1';
     const parsed = parseInt(rawValue, 10);
-    if (Number.isNaN(parsed) || parsed <= 0) {
-      return 1;
-    }
+    if (Number.isNaN(parsed) || parsed <= 0) return 1;
     return Math.min(parsed, MAX_PLAYERS);
   }
 
@@ -812,6 +686,9 @@ export class ViewerApp {
       applyPlayerModelBtn: this.doc.getElementById('apply-player-model'),
       playerProfileSelect: this.doc.getElementById('player-profile-select') as HTMLSelectElement | null,
       debugInfoPanel: this.doc.getElementById('debug-info-panel') as HTMLDivElement | null,
+      simControlsPanel: this.doc.getElementById('sim-controls-panel') as HTMLDivElement | null,
+      homeTacticSelect: this.doc.getElementById('home-tactic-select') as HTMLSelectElement | null,
+      awayTacticSelect: this.doc.getElementById('away-tactic-select') as HTMLSelectElement | null,
     };
   }
 }

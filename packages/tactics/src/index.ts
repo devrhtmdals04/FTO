@@ -3,3 +3,6 @@ export * from "./state/tacticsStore";
 export * from "./models/tactic";
 export * from "./api/types";
 export * from "./hooks/useTacticsStore";
+export * from './api/engine_types';
+export * from './presets';
+export * from './components/MatchSetup';

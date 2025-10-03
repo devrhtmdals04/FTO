@@ -129,8 +129,10 @@ impl Engine {
         let commands_to_process: Vec<Cmd> = self.commands.drain_ready(self.world.tick).collect();
         for cmd in commands_to_process {
             match cmd {
-                Cmd::TacticsSet(tactics) => {
-                    self.world.tactics[TeamId::Home.index()] = tactics;
+                Cmd::TacticsSet { team_id, tactics } => {
+                    if (team_id as usize) < self.world.tactics.len() {
+                        self.world.tactics[team_id as usize] = tactics;
+                    }
                 }
                 Cmd::RoleOverride { pid, params, ttl } => {
                     if let Some(slot) = self.world.prole_override.get_mut(pid as usize) {

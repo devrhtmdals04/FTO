@@ -6,7 +6,10 @@ use wasm_bindgen::JsValue;
 
 #[derive(Debug, Clone, Copy)]
 pub enum Cmd {
-    TacticsSet(Tactics),
+    TacticsSet {
+        team_id: u8,
+        tactics: Tactics,
+    },
     RoleOverride {
         pid: u8,
         params: RoleParams,
@@ -69,6 +72,7 @@ struct CommandFields {
 
 #[derive(Deserialize)]
 struct TacticsCmd {
+    team_id: u8,
     tactics: Tactics,
 }
 
@@ -122,7 +126,10 @@ pub fn parse_command(js_value: JsValue) -> Result<ParsedCommand, ParseError> {
     let cmd = match fields.ty.as_str() {
         "tactics_set" => {
             let val: TacticsCmd = serde_wasm_bindgen::from_value(js_value)?;
-            Cmd::TacticsSet(val.tactics)
+            Cmd::TacticsSet {
+                team_id: val.team_id,
+                tactics: val.tactics,
+            }
         }
         "role_override" => {
             let val: RoleOverrideCmd = serde_wasm_bindgen::from_value(js_value)?;
