@@ -10,7 +10,8 @@
   },
   "dependencies": {
     "three": "^0.169.0",
-    "three.js": "^0.77.1"
+    "three.js": "^0.77.1",
+    "tactics": "file:../tactics"
   },
   "devDependencies": {
     "@types/three": "^0.169.0",

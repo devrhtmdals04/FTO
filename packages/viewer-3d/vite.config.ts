@@ -8,6 +8,7 @@ export default defineConfig({
     fs: {
       allow: [
         "../engine/pkg",
+        "../tactics",
         ".",
       ],
     },

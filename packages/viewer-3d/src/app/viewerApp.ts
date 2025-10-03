@@ -8,6 +8,8 @@ import { PlayerProfile, PlayerView, SimView } from '../state';
 import { createEngineBridge } from '../wasm/bridge';
 import { createSceneContext, SceneContext } from './sceneContext';
 
+import { TacticsSettingsRoot, TacticsStore } from 'tactics';
+
 const MAX_PLAYERS = 22;
 const STEP_DT = 1 / 20;
 const DEFAULT_MODEL_URL = '/assets/player.glb';
@@ -56,6 +58,9 @@ export class ViewerApp {
   private readonly ball = new Ball();
   private readonly hud = new HUD();
 
+  private tacticsStore: TacticsStore | null = null;
+  private tacticsRoot: TacticsSettingsRoot | null = null;
+
   private sceneContext!: SceneContext;
   private readonly keyboardState: Record<string, boolean> = {};
   private readonly playerSpeeds = new Float32Array(MAX_PLAYERS);
@@ -64,6 +69,7 @@ export class ViewerApp {
   private debugHotkeys: DebugHotkey[] = [];
   private readonly generalDebugHotkeys: Array<{ label: string; description: string }> = [
     { label: 'Space', description: 'Toggle Pause' },
+    { label: 'O', description: 'Toggle Tactics Panel' },
   ];
 
   private prev: SimView = createEmptySimView();
@@ -92,6 +98,12 @@ export class ViewerApp {
   async init(): Promise<void> {
     this.sceneContext = createSceneContext(this.mount);
     this.last = performance.now() / 1000;
+
+    const tacticsMount = this.doc.getElementById('tactics-root');
+    if (tacticsMount instanceof HTMLElement) {
+      this.tacticsStore = new TacticsStore(this.source);
+      this.tacticsRoot = new TacticsSettingsRoot({ mount: tacticsMount, store: this.tacticsStore });
+    }
 
     this.sceneContext.scene.add(createPitch());
     this.sceneContext.scene.add(this.ball.mesh);
@@ -135,6 +147,8 @@ export class ViewerApp {
     this.ui.applyPlayerModelBtn?.removeEventListener('click', this.handleApplyPlayerModel);
     this.ui.playerModelInput?.removeEventListener('keydown', this.handlePlayerModelInputKey);
     this.ui.playerProfileSelect?.removeEventListener('change', this.handleProfileChange);
+
+    this.tacticsRoot?.destroy();
 
     if (this.frameHandle !== null) {
       cancelAnimationFrame(this.frameHandle);
@@ -648,6 +662,16 @@ export class ViewerApp {
         description: 'Toggle Master Debug Mode',
         handler: () => this.handleMasterDebugToggle(),
         suppressRepeat: true,
+      },
+      {
+        code: 'KeyO',
+        keyLabel: 'O',
+        description: 'Toggle Tactics Panel',
+        handler: () => {
+          this.tacticsStore?.toggle();
+        },
+        suppressRepeat: true,
+        showInPanel: true,
       },
       {
         code: 'KeyT',

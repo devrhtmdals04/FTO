@@ -5,5 +5,7 @@
   "devDependencies": {
     "vite-plugin-top-level-await": "^1.6.0",
     "vite-plugin-wasm": "^3.5.0"
-  }
+  },
+  "name": "fto-root",
+  "private": true
 }

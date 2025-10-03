@@ -1,0 +1,337 @@
+import type { Tactic } from '../models/tactic';
+import type { TacticsStore, TacticsState } from '../state/tacticsStore';
+
+const STYLE_ELEMENT_ID = 'fto-tactics-panel-styles';
+const TACTICS_PANEL_STYLES = `
+[data-tactics-root] {
+  position: fixed;
+  top: 72px;
+  right: 12px;
+  z-index: 1200;
+  pointer-events: none;
+}
+
+[data-tactics-root]:empty {
+  display: none;
+}
+
+[data-tactics-root] .fto-tactics-panel {
+  width: 360px;
+  max-height: 70vh;
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 10px;
+  background: rgba(12, 12, 12, 0.92);
+  color: #f5f5f5;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(6px);
+  font-size: 14px;
+  pointer-events: auto;
+  overflow: hidden;
+}
+
+[data-tactics-root] .fto-tactics-panel > .close-btn {
+  grid-column: 1 / -1;
+  justify-self: end;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: 20px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+[data-tactics-root] .fto-tactics-panel .list-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+[data-tactics-root] .fto-tactics-panel .list-section h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+[data-tactics-root] .fto-tactics-panel .list-section ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+}
+
+[data-tactics-root] .fto-tactics-panel .tactic-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.12);
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+[data-tactics-root] .fto-tactics-panel .tactic-item:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+[data-tactics-root] .fto-tactics-panel .tactic-item.active {
+  outline: 2px solid rgba(88, 166, 255, 0.6);
+}
+
+[data-tactics-root] .fto-tactics-panel .tactic-item span {
+  flex: 1 1 auto;
+}
+
+[data-tactics-root] .fto-tactics-panel .delete-btn {
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+
+[data-tactics-root] .fto-tactics-panel .create-btn {
+  align-self: flex-start;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 14px;
+  cursor: pointer;
+  background: rgba(88, 166, 255, 0.25);
+  color: inherit;
+  font-size: 14px;
+  transition: background 120ms ease;
+}
+
+[data-tactics-root] .fto-tactics-panel .create-btn:hover {
+  background: rgba(88, 166, 255, 0.35);
+}
+
+[data-tactics-root] .fto-tactics-panel .details-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  overflow-y: auto;
+}
+
+[data-tactics-root] .fto-tactics-panel .details-section h3 {
+  margin: 0;
+}
+
+[data-tactics-root] .fto-tactics-panel .tactic-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+[data-tactics-root] .fto-tactics-panel .grid-span-2 {
+  grid-column: span 2;
+}
+
+[data-tactics-root] .fto-tactics-panel label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+}
+
+[data-tactics-root] .fto-tactics-panel input,
+[data-tactics-root] .fto-tactics-panel select {
+  width: 100%;
+  border-radius: 6px;
+  border: none;
+  padding: 8px;
+  font-size: 14px;
+}
+
+[data-tactics-root] .fto-tactics-panel .save-btn {
+  align-self: flex-start;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 16px;
+  background: rgba(88, 166, 255, 0.35);
+  color: inherit;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 120ms ease;
+}
+
+[data-tactics-root] .fto-tactics-panel .save-btn:hover {
+  background: rgba(88, 166, 255, 0.45);
+}
+
+[data-tactics-root] .fto-tactics-panel .placeholder,
+[data-tactics-root] .fto-tactics-panel .loader {
+  border-radius: 6px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.1);
+  font-size: 13px;
+}
+`;
+
+export interface TacticsSettingsRootOptions {
+  mount: HTMLElement;
+  store: TacticsStore;
+}
+
+/**
+ * 전술 설정 UI를 렌더링하고 상호작용을 처리하는 메인 클래스
+ */
+export class TacticsSettingsRoot {
+  readonly #mount: HTMLElement;
+  readonly #store: TacticsStore;
+  readonly #unsubscribe: () => void;
+
+  constructor({ mount, store }: TacticsSettingsRootOptions) {
+    this.#mount = mount;
+    this.#store = store;
+
+    this.#mount.dataset.tacticsRoot = 'true';
+    this.#ensureStyles();
+
+    // 스토어의 상태가 변경될 때마다 render 함수를 호출하도록 구독합니다.
+    this.#unsubscribe = this.#store.subscribe(this.render);
+    // 초기 데이터 로드
+    this.#store.loadTactics();
+  }
+
+  /** 컴포넌트 파괴 시 이벤트 리스너를 정리합니다. */
+  destroy = (): void => {
+    this.#unsubscribe();
+    this.#mount.innerHTML = '';
+  };
+
+  #ensureStyles = (): void => {
+    const doc = this.#mount.ownerDocument ?? document;
+    if (doc.getElementById(STYLE_ELEMENT_ID)) {
+      return;
+    }
+    const style = doc.createElement('style');
+    style.id = STYLE_ELEMENT_ID;
+    style.textContent = TACTICS_PANEL_STYLES;
+    doc.head.appendChild(style);
+  };
+
+  /** UI를 렌더링하는 메인 함수 */
+  render = (state: TacticsState): void => {
+    const { isOpen, tactics, activeTactic, isLoading } = state;
+
+    // 패널이 닫혀있으면 아무것도 그리지 않습니다.
+    if (!isOpen) {
+      this.#mount.innerHTML = '';
+      return;
+    }
+
+    // 전체 UI 구조를 innerHTML로 설정합니다.
+    this.#mount.innerHTML = `
+      <div class="tactics-panel fto-tactics-panel">
+        <button class="close-btn">×</button>
+        <div class="list-section">
+          <h3>Tactics</h3>
+          <ul>
+            ${tactics.map(t => `
+              <li class="tactic-item ${t.id === activeTactic?.id ? 'active' : ''}" data-id="${t.id}">
+                <span>${t.label} (${t.out_of_possession_formation} -> ${t.in_possession_formation})</span>
+                <button class="delete-btn" data-id="${t.id}">🗑️</button>
+              </li>
+            `).join('')}
+          </ul>
+          <button class="create-btn">+ New Tactic</button>
+        </div>
+        <div class="details-section">
+          ${isLoading ? '<div class="loader">Loading...</div>' : ''}
+          ${activeTactic ? this.#renderDetails(activeTactic) : '<div class="placeholder">Select a tactic to edit.</div>'}
+        </div>
+      </div>
+    `;
+
+    // DOM이 생성된 후 이벤트 리스너를 연결합니다.
+    this.#attachEventListeners();
+  };
+
+  /** 전술 상세 편집 UI를 렌더링합니다. */
+  #renderDetails = (tactic: Tactic): string => {
+    return `
+      <h3><input type="text" name="label" value="${tactic.label}" class="tactic-label-input"/></h3>
+      <div class="tactic-grid">
+        <div class="grid-item">
+          <h4>Out of Possession (수비 시)</h4>
+          <label>Formation: <input type="text" name="out_of_possession.formation" value="${tactic.out_of_possession.formation}" /></label>
+        </div>
+        <div class="grid-item">
+          <h4>In Possession (공격 시)</h4>
+          <label>Formation: <input type="text" name="in_possession.formation" value="${tactic.in_possession.formation}" /></label>
+        </div>
+        <div class="grid-item grid-span-2">
+          <h4>Transition (공 뺏겼을 때)</h4>
+          <select name="transition.on_loss">
+            <option value="fall_back" ${tactic.transition.on_loss === 'fall_back' ? 'selected' : ''}>대형 유지 (Fall Back)</option>
+            <option value="press_on_heavy_touch" ${tactic.transition.on_loss === 'press_on_heavy_touch' ? 'selected' : ''}>즉시 압박 (Press)</option>
+          </select>
+        </div>
+      </div>
+      <button class="save-btn">Save Changes</button>
+    `;
+  };
+
+  /** 생성된 DOM 요소에 이벤트 리스너를 연결합니다. */
+  #attachEventListeners = (): void => {
+    this.#mount.querySelector('.close-btn')?.addEventListener('click', this.#store.close);
+    this.#mount.querySelector('.create-btn')?.addEventListener('click', this.#handleCreate);
+    this.#mount.querySelector('.save-btn')?.addEventListener('click', this.#store.saveTactic);
+
+    this.#mount.querySelectorAll('.tactic-item').forEach(el => {
+      el.addEventListener('click', () => this.#store.selectTactic((el as HTMLElement).dataset.id!));
+    });
+
+    this.#mount.querySelectorAll('.delete-btn').forEach(el => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (confirm('Are you sure you want to delete this tactic?')) {
+          this.#store.deleteTactic((el as HTMLElement).dataset.id!);
+        }
+      });
+    });
+
+    this.#mount.querySelectorAll('input, select').forEach(el => {
+      el.addEventListener('change', this.#handleInputChange);
+    });
+  };
+
+  #handleCreate = () => {
+    const label = prompt('New tactic name:');
+    if (label) this.#store.createTactic(label);
+  };
+
+  /** 입력 필드 변경 시 스토어의 상태를 업데이트합니다. */
+  #handleInputChange = (e: Event) => {
+    const target = e.target as HTMLInputElement | HTMLSelectElement;
+    const path = target.name;
+    const value = target.value;
+
+    const activeTactic = this.#store.snapshot.activeTactic;
+    if (!activeTactic) return;
+
+    // 상태 불변성을 위해 깊은 복사를 합니다.
+    const newTactic = JSON.parse(JSON.stringify(activeTactic));
+
+    // 'a.b' 같은 경로를 해석하여 값을 설정합니다.
+    let current = newTactic;
+    const keys = path.split('.');
+    for (let i = 0; i < keys.length - 1; i++) {
+      current = current[keys[i]];
+    }
+    current[keys[keys.length - 1]] = value;
+
+    // 전체 Tactic 객체를 스토어에 업데이트합니다.
+    this.#store.updateActiveTactic(newTactic);
+  };
+}

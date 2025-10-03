@@ -2,6 +2,7 @@ import init, { WasmEngine } from "../../../../packages/engine/pkg/engine.js";
 // ↑ 모노레포 경로 예시. 프로젝트 구조에 맞춰 바꿔주세요.
 
 import { SimView, PlayerView, TeamId, PlayerProfile } from "../state";
+import { Tactic, TacticSummary } from "tactics";
 
 const VIEW_VERSION_EXPECTED = 3;
 const PLAYER_VIEW_SIZE = 32; // x,y,hx,hy,vis,vis_y,vis_xz (7*f32) + team (u8) + padding (3*u8) = 32 bytes
@@ -141,6 +142,28 @@ export function createEngineBridge() {
               }
               return () => console.warn("Engine not ready yet.");
           }
-      }) as WasmEngine
+      }) as WasmEngine,
+
+      // --- Tactics API (Placeholder Implementation) ---
+      listTactics: async (): Promise<TacticSummary[]> => {
+        console.log('[Bridge] listTactics called');
+        // TODO: Implement communication with WASM engine to list tactics
+        return []; // Return dummy data
+      },
+      loadTactic: async (id: string): Promise<Tactic | null> => {
+        console.log(`[Bridge] loadTactic called with id: ${id}`);
+        // TODO: Implement communication with WASM engine to load a tactic
+        return null; // Return dummy data
+      },
+      saveTactic: async (tactic: Tactic): Promise<void> => {
+        console.log('[Bridge] saveTactic called with tactic:', tactic);
+        // TODO: Implement communication with WASM engine to save a tactic
+        return Promise.resolve();
+      },
+      deleteTactic: async (id: string): Promise<void> => {
+        console.log(`[Bridge] deleteTactic called with id: ${id}`);
+        // TODO: Implement communication with WASM engine to delete a tactic
+        return Promise.resolve();
+      },
   }
 }
