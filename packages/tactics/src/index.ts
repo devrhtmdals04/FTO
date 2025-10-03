@@ -6,3 +6,5 @@ export * from "./hooks/useTacticsStore";
 export * from './api/engine_types';
 export * from './presets';
 export * from './components/MatchSetup';
+export * from './utils/translator';
+export * from './components/PitchDisplay';

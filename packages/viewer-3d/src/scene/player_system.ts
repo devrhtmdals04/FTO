@@ -3,15 +3,11 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { PlayerView, AnimEvent, PlayerProfile } from "../state";
 import { loadPlayerModel, spawnPlayer, setTeamColor, applyTransform, PlayerInstance, updateDebugText, disposePlayer } from "./player_glb";
 import { loadAndAttachClips } from "./anim-binder";
+import { DEFAULT_CLIP_URLS, PLAYER_MODEL_URL } from "../assets";
 
 // --- Animation Configuration ---
 const animationConfig = {
-  clipUrls: {
-    Idle: "/assets/idle.glb",
-    Run: "/assets/run.glb",
-    Walk: "/assets/jog.glb", 
-    KickR: "/assets/kick_r.glb",
-  },
+  clipUrls: { ...DEFAULT_CLIP_URLS },
   eventMap: {
     KickL: { name: 'KickR', lockMs: 250 },
     KickR: { name: 'KickR', lockMs: 250 },
@@ -34,7 +30,7 @@ export class PlayerSystem {
   isMasterDebug = false;
   private skeletonVisible = false;
   private playerModelVisible = true;
-  private modelUrl: string = "/assets/player.glb";
+  private modelUrl: string = PLAYER_MODEL_URL;
 
   inst: PlayerInstance[] = [];
   ctrl: Record<string, THREE.AnimationAction>[] = [];

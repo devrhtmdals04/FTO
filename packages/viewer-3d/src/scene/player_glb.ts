@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { PlayerView } from "../state";
+import { PLAYER_MODEL_URL } from "../assets";
 
 export interface PlayerInstance {
   root: THREE.Object3D;
@@ -38,7 +39,7 @@ function createActionTextSprite(text: string): THREE.Sprite {
 }
 
 
-export async function loadPlayerModel(url = "/assets/player.glb"): Promise<THREE.Object3D> {
+export async function loadPlayerModel(url = PLAYER_MODEL_URL): Promise<THREE.Object3D> {
   if (modelCache.has(url)) {
     return modelCache.get(url)!;
   }

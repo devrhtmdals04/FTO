@@ -9,11 +9,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "tactics": "file:../tactics",
     "three": "^0.169.0",
-    "three.js": "^0.77.1",
-    "tactics": "file:../tactics"
+    "three.js": "^0.77.1"
   },
   "devDependencies": {
+    "@types/node": "^24.6.2",
     "@types/three": "^0.169.0",
     "typescript": "^5.5.4",
     "vite": "^5.4.0"

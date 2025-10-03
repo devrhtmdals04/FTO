@@ -1,5 +1,6 @@
-import type { Tactic } from '../models/tactic';
+import { createEmptyTactic, Tactic } from '../models/tactic';
 import type { TacticsStore, TacticsState } from '../state/tacticsStore';
+import { PitchDisplay } from './PitchDisplay';
 
 const STYLE_ELEMENT_ID = 'fto-tactics-panel-styles';
 const TACTICS_PANEL_STYLES = `
@@ -48,6 +49,7 @@ const TACTICS_PANEL_STYLES = `
   flex-direction: column;
   gap: 12px;
   min-width: 0;
+  min-height: 0;
 }
 
 [data-tactics-root] .fto-tactics-panel .list-section h3 {
@@ -119,6 +121,7 @@ const TACTICS_PANEL_STYLES = `
   flex-direction: column;
   gap: 12px;
   min-width: 0;
+  min-height: 0;
   overflow-y: auto;
 }
 
@@ -162,7 +165,7 @@ const TACTICS_PANEL_STYLES = `
   cursor: pointer;
   font-size: 14px;
   transition: background 120ms ease;
-  margin-top: auto;
+  margin-top: 8px;
 }
 
 [data-tactics-root] .fto-tactics-panel .save-btn:hover {
@@ -209,6 +212,13 @@ const TACTICS_PANEL_STYLES = `
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+[data-tactics-root] .pitch-container {
+  background: #222;
+  border-radius: 6px;
+  padding: 8px;
+  margin-bottom: 8px;
 }
 `;
 
@@ -281,9 +291,9 @@ export class TacticsSettingsRoot {
           <h3>Tactics</h3>
           <ul>
             ${tactics.map(t => `
-              <li class="tactic-item ${t.id === activeTactic?.id ? 'active' : ''}" data-id="${t.id}">
-                <span>${t.label} (${t.out_of_possession_formation} -> ${t.in_possession_formation})</span>
-                <button class="delete-btn" data-id="${t.id}">🗑️</button>
+              <li class="tactic-item ${t.id === activeTactic?.id ? 'active' : ''}" data-id="${t.id}" data-label="${t.label}">
+                <span>${t.label}</span>
+                <button class="delete-btn" data-label="${t.label}">🗑️</button>
               </li>
             `).join('')}
           </ul>
@@ -291,13 +301,14 @@ export class TacticsSettingsRoot {
         </div>
         <div class="details-section">
           ${isLoading ? '<div class="loader">Loading...</div>' : ''}
-          ${activeTactic ? this.#renderDetails(activeTactic) : '<div class="placeholder">Select a tactic to edit.</div>'}
+          ${activeTactic ? this.#renderDetails(activeTactic) : '<div class="placeholder">Select or create a tactic.</div>'}
         </div>
       </div>
     `;
 
-    // DOM이 생성된 후 이벤트 리스너를 연결합니다.
+    // DOM이 생성된 후 이벤트 리스너와 하위 컴포넌트를 마운트합니다.
     this.#attachEventListeners();
+    this.#mountSubComponents(state);
   };
 
   /** 전술 상세 편집 UI를 탭 구조로 렌더링합니다. */
@@ -305,10 +316,12 @@ export class TacticsSettingsRoot {
     const tabContent = {
       defense: `
         <h4>Out of Possession (수비 시)</h4>
+        <div class="pitch-container" data-mode="out_of_possession"></div>
         <label>Formation: <input type="text" name="out_of_possession.formation" value="${tactic.out_of_possession.formation}" /></label>
       `,
       offense: `
         <h4>In Possession (공격 시)</h4>
+        <div class="pitch-container" data-mode="in_possession"></div>
         <label>Formation: <input type="text" name="in_possession.formation" value="${tactic.in_possession.formation}" /></label>
       `,
       transition: `
@@ -338,11 +351,27 @@ export class TacticsSettingsRoot {
     `;
   };
 
+  #mountSubComponents = (state: TacticsState): void => {
+    if (!state.activeTactic) return;
+
+    const pitchContainer = this.#mount.querySelector<HTMLElement>('.pitch-container');
+    if (pitchContainer) {
+      const mode = pitchContainer.dataset.mode as 'in_possession' | 'out_of_possession' | undefined;
+      if (mode) {
+        new PitchDisplay({
+          mount: pitchContainer,
+          tactic: state.activeTactic,
+          mode: mode,
+        });
+      }
+    }
+  };
+
   /** 생성된 DOM 요소에 이벤트 리스너를 연결합니다. */
   #attachEventListeners = (): void => {
     this.#mount.querySelector('.close-btn')?.addEventListener('click', this.#store.close);
     this.#mount.querySelector('.create-btn')?.addEventListener('click', this.#handleCreate);
-    this.#mount.querySelector('.save-btn')?.addEventListener('click', this.#store.saveTactic);
+    this.#mount.querySelector('.save-btn')?.addEventListener('click', this.#handleSave);
 
     this.#mount.querySelectorAll('.tactic-item').forEach(el => {
       el.addEventListener('click', () => this.#store.selectTactic((el as HTMLElement).dataset.id!));
@@ -351,9 +380,7 @@ export class TacticsSettingsRoot {
     this.#mount.querySelectorAll('.delete-btn').forEach(el => {
       el.addEventListener('click', (e) => {
         e.stopPropagation();
-        if (confirm('Are you sure you want to delete this tactic?')) {
-          this.#store.deleteTactic((el as HTMLElement).dataset.id!);
-        }
+        this.#handleDelete((el as HTMLElement).dataset.label!);
       });
     });
 
@@ -373,7 +400,63 @@ export class TacticsSettingsRoot {
 
   #handleCreate = () => {
     const label = prompt('New tactic name:');
-    if (label) this.#store.createTactic(label);
+    if (label) {
+      const newTactic = createEmptyTactic(label);
+      // 에디터에서 즉시 편집할 수 있도록 활성 전술로 설정하지만 아직 저장하지 않습니다.
+      this.#store.setActiveTactic(newTactic);
+    }
+  };
+
+  #handleSave = async () => {
+    const tacticToSave = this.#store.snapshot.activeTactic;
+    if (!tacticToSave) {
+      alert('No active tactic to save.');
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/save-preset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(tacticToSave),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to save preset: ${errorText}`);
+      }
+
+      // Reload tactics from source to reflect the change
+      await this.#store.loadTactics();
+      alert(`Tactic '${tacticToSave.label}' saved successfully!`);
+    } catch (error) {
+      console.error('Error saving tactic:', error);
+      alert(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
+  #handleDelete = async (label: string) => {
+    if (!label || !confirm(`Are you sure you want to delete the '${label}' preset?`)) {
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/delete-preset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to delete preset: ${errorText}`);
+      }
+
+      await this.#store.loadTactics();
+    } catch (error) {
+      console.error('Error deleting tactic:', error);
+      alert(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   };
 
   #handleTabChange = (tab: 'defense' | 'offense' | 'transition') => {

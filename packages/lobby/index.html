@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FTO Lobby</title>
+    <link rel="stylesheet" href="/packages/lobby/src/styles.css" />
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <h1>FTO Project</h1>
+        <p>Welcome to the FTO development lobby. Choose an option to get started.</p>
+      </header>
+      <main class="card-container">
+        <a href="/packages/viewer-3d/" class="card">
+          <h2><span class="emoji">⚽</span> Start Match</h2>
+          <p>Launch the 3D match viewer and start the simulation.</p>
+        </a>
+        <a href="/packages/tactics/demo/" class="card">
+          <h2><span class="emoji">📋</span> Tactics Editor</h2>
+          <p>Open the standalone tactics editor to create and modify presets.</p>
+        </a>
+      </main>
+    </div>
+    <script type="module" src="/packages/lobby/src/main.ts"></script>
+  </body>
+</html>

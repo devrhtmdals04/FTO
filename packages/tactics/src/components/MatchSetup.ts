@@ -1,4 +1,4 @@
-import type { EngineTactic } from '../api/engine_types';
+import type { Tactic } from '../models/tactic';
 
 const STYLE_ELEMENT_ID = 'fto-match-setup-styles';
 const MATCH_SETUP_STYLES = `
@@ -89,7 +89,7 @@ const MATCH_SETUP_STYLES = `
 
 export interface MatchSetupOptions {
   mount: HTMLElement;
-  presets: Record<string, EngineTactic>;
+  presets: Record<string, Tactic>;
   onStart: (options: { homeTactic: string; awayTactic: string }) => void;
 }
 

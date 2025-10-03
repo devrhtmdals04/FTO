@@ -1,16 +1,17 @@
 import * as THREE from 'three';
-import { MatchSetup, PRESET_TACTICS, TacticsStore } from 'tactics';
+import { MatchSetup, PRESET_TACTICS, tacticToEngineParams, TacticsStore } from 'tactics';
 import { Ball } from '../scene/ball';
 import { HUD } from '../scene/hud';
 import { createPitch } from '../scene/pitch';
 import { PlayerSystem } from '../scene/player_system';
+import { PLAYER_MODEL_URL } from '../assets';
 import { PlayerProfile, PlayerView, SimView } from '../state';
 import { createEngineBridge } from '../wasm/bridge';
 import { createSceneContext, SceneContext } from './sceneContext';
 
 const MAX_PLAYERS = 22;
 const STEP_DT = 1 / 20;
-const DEFAULT_MODEL_URL = '/assets/player.glb';
+const DEFAULT_MODEL_URL = PLAYER_MODEL_URL;
 const CAMERA_MOVE_SPEED = 1.0;
 const DRIVE_LOOKAHEAD_SECONDS = 0.6;
 
@@ -93,6 +94,9 @@ export class ViewerApp {
     private readonly doc: Document = document,
   ) {
     this.ui = this.resolveUIElements();
+    if (this.ui.playerModelInput) {
+      this.ui.playerModelInput.value = PLAYER_MODEL_URL;
+    }
     this.currentModelUrl = this.ui.playerModelInput?.value?.trim() || DEFAULT_MODEL_URL;
     this.debugHotkeys = this.createDebugHotkeys();
   }
@@ -405,10 +409,17 @@ export class ViewerApp {
     const requestedCount = this.getRequestedPlayerCount();
 
     if (requestedCount === MAX_PLAYERS && tactics) {
-      const homeTactic = PRESET_TACTICS[tactics.homeTactic];
-      const awayTactic = PRESET_TACTICS[tactics.awayTactic];
-      if (homeTactic) this.source.engine.command({ type: 'tactics_set', team_id: 0, tactics: homeTactic });
-      if (awayTactic) this.source.engine.command({ type: 'tactics_set', team_id: 1, tactics: awayTactic });
+      const homeTacticModel = PRESET_TACTICS[tactics.homeTactic];
+      const awayTacticModel = PRESET_TACTICS[tactics.awayTactic];
+
+      if (homeTacticModel) {
+        const engineParams = tacticToEngineParams(homeTacticModel);
+        this.source.engine.command({ type: 'tactics_set', team_id: 0, tactics: engineParams });
+      }
+      if (awayTacticModel) {
+        const engineParams = tacticToEngineParams(awayTacticModel);
+        this.source.engine.command({ type: 'tactics_set', team_id: 1, tactics: engineParams });
+      }
     }
 
     const previousUrl = this.players.getModelUrl();

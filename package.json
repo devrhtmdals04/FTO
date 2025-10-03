@@ -1,8 +1,11 @@
 {
   "scripts": {
-    "dev": "vite packages/viewer-3d"
+    "dev": "vite",
+    "typecheck": "./node_modules/.bin/tsc --noEmit"
   },
   "devDependencies": {
+    "@types/node": "^20.12.12",
+    "vite": "^5.2.11",
     "vite-plugin-top-level-await": "^1.6.0",
     "vite-plugin-wasm": "^3.5.0"
   },
