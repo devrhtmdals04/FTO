@@ -7,8 +7,8 @@ export default defineConfig({
   server: {
     fs: {
       allow: [
-        '../../packages/engine/pkg',
-        '../../packages/viewer-3d',
+        "../engine/pkg",
+        ".",
       ],
     },
   },

@@ -21,6 +21,7 @@ function createEmptySimView(): SimView {
     h: [1, 0],
     vis: 1,
     team: (i < 11 ? 0 : 1),
+    has_ball: false,
   }));
   return { tick: 0, ball: { x: 0, y: 0, z: 0 }, players };
 }
@@ -205,6 +206,7 @@ export class ViewerApp {
         y: THREE.MathUtils.lerp(prevPlayer.y, currPlayer.y, alpha),
         h: [hx / headingNorm, hy / headingNorm],
         speed: this.playerSpeeds[index] || 0,
+        has_ball: currPlayer.has_ball,
       };
     });
   }
