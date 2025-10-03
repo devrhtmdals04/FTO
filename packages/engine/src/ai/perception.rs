@@ -209,7 +209,22 @@ pub fn build_perception(world: &World, player_index: usize) -> Perception {
         TeamId::Home => -6.0,
         TeamId::Away => 6.0,
     };
-    let mut target_pos = Vec2::new(ball_pos.x + forward_bias, ball_pos.y + lateral_band);
+
+    let possession_team = world.possession;
+    let player_params = world.p_params[player_index];
+    let max_speed = player_params.v_max.max(0.1);
+    let pursue_ball = possession_team != me_team_id as i8;
+
+    let mut target_pos = if pursue_ball {
+        let to_ball = ball_pos - me_pos;
+        let distance = to_ball.norm();
+        let travel_time = (distance / max_speed).clamp(0.0, 2.0);
+        let predicted_ball = ball_pos + ball_vel * travel_time;
+        predicted_ball
+    } else {
+        Vec2::new(ball_pos.x + forward_bias, ball_pos.y + lateral_band)
+    };
+
     let half_w = PITCH_W * 0.5;
     let half_h = PITCH_H * 0.5;
     target_pos.x = target_pos.x.clamp(-half_w, half_w);

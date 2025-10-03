@@ -1,10 +1,14 @@
-use crate::ai::fsm::{Action, ActionContext, ActionUpdate, ActionPayload};
+use crate::ai::fsm::{Action, ActionContext, ActionPayload, ActionUpdate};
 
 #[derive(Default)]
 pub struct DefensiveAction;
 
 impl Action for DefensiveAction {
-    fn begin(&mut self, _context: &mut ActionContext, _payload: &ActionPayload) -> Option<crate::commands::Cmd> {
+    fn begin(
+        &mut self,
+        _context: &mut ActionContext,
+        _payload: &ActionPayload,
+    ) -> Option<crate::commands::Cmd> {
         None
     }
 

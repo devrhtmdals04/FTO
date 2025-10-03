@@ -1,7 +1,7 @@
 // Simulation time step, in seconds. (e.g., 0.05 for 20Hz)
 
 pub const DT: f32 = 0.05; // 20Hz
-// Number of simulation ticks per second.
+                          // Number of simulation ticks per second.
 pub const TICKS_PER_SECOND: u32 = 20;
 
 // --- Pitch and Goal Dimensions (in meters) ---
@@ -36,9 +36,9 @@ pub const E_Z: f32 = 0.55;
 // Minimum vertical velocity to trigger a bounce.
 pub const VZ_MIN: f32 = 1.0;
 // Dynamic ground friction parameters
-pub const MU_GROUND_STATIC: f32 = 0.30;  // Friction at near-zero speed
+pub const MU_GROUND_STATIC: f32 = 0.30; // Friction at near-zero speed
 pub const MU_GROUND_KINETIC: f32 = 0.12; // Friction at high speed
-pub const FRICTION_V_REF: f32 = 5.0;     // Speed (m/s) for interpolation
+pub const FRICTION_V_REF: f32 = 5.0; // Speed (m/s) for interpolation
 
 // --- Spatial Hashing Grid for AI ---
 // Number of grid cells along the x-axis.
@@ -59,7 +59,7 @@ pub const INTERCEPT_TOPK: usize = 3;
 // --- Snapshot Scaling (for data compression) ---
 // Scaling factor for position data in snapshots.
 pub const SNAPSHOT_POS_SCALE: f32 = 1.0 / 0.05; // 0.05m
-// Scaling factor for velocity data in snapshots.
+                                                // Scaling factor for velocity data in snapshots.
 pub const SNAPSHOT_VEL_SCALE: f32 = 1.0 / 0.02; // 0.02m/s
 
 // --- Tactics ---

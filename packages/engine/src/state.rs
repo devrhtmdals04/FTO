@@ -18,24 +18,24 @@ pub const N_TEAMS: usize = 2;
 #[derive(Clone, Copy, Serialize)]
 pub struct PlayerInput20 {
     pub name: &'static str,
-    pub pace: u8,          // Top speed
-    pub accel: u8,         // Acceleration
-    pub agility: u8,       // Turning ability
-    pub stamina: u8,       // Endurance
-    pub strength: u8,      // Physical strength
-    pub first_touch: u8,   // Ball control
-    pub passing: u8,       // Passing accuracy
-    pub vision: u8,        // Field awareness for passing
-    pub finishing: u8,     // Shooting accuracy
-    pub shot_power: u8,    // Shot power
-    pub tackling: u8,      // Tackling ability
-    pub interception: u8,  // Ability to intercept passes
-    pub heading: u8,       // Heading accuracy and power
-    pub jumping: u8,       // Jumping height
-    pub height_cm: u16,    // Player height in centimeters
-    pub weight_kg: u16,    // Player weight in kilograms
-    pub foot: Foot,        // Preferred foot (Left/Right)
-    pub weak_foot: u8,     // Weak foot ability (1-5 scale)
+    pub pace: u8,         // Top speed
+    pub accel: u8,        // Acceleration
+    pub agility: u8,      // Turning ability
+    pub stamina: u8,      // Endurance
+    pub strength: u8,     // Physical strength
+    pub first_touch: u8,  // Ball control
+    pub passing: u8,      // Passing accuracy
+    pub vision: u8,       // Field awareness for passing
+    pub finishing: u8,    // Shooting accuracy
+    pub shot_power: u8,   // Shot power
+    pub tackling: u8,     // Tackling ability
+    pub interception: u8, // Ability to intercept passes
+    pub heading: u8,      // Heading accuracy and power
+    pub jumping: u8,      // Jumping height
+    pub height_cm: u16,   // Player height in centimeters
+    pub weight_kg: u16,   // Player weight in kilograms
+    pub foot: Foot,       // Preferred foot (Left/Right)
+    pub weak_foot: u8,    // Weak foot ability (1-5 scale)
 }
 
 /// The main struct holding the entire state of the simulation world.
@@ -65,22 +65,22 @@ pub struct World {
     // --- Team and Player Data ---
     pub tactics: [Tactics; N_TEAMS], // Tactical settings for each team.
 
-    pub p_team: [u8; N_PLAYERS],                  // Team ID for each player.
-    pub p_role: [PlayerRole; N_PLAYERS],          // Tactical role for each player.
-    pub p_params: [PlayerParams; N_PLAYERS],      // Computed physics parameters for each player.
+    pub p_team: [u8; N_PLAYERS],             // Team ID for each player.
+    pub p_role: [PlayerRole; N_PLAYERS],     // Tactical role for each player.
+    pub p_params: [PlayerParams; N_PLAYERS], // Computed physics parameters for each player.
 
     // --- Player Physics State ---
-    pub px: [f32; N_PLAYERS],      // Player position (x-coordinate).
-    pub py: [f32; N_PLAYERS],      // Player position (y-coordinate).
-    pub pvx: [f32; N_PLAYERS],     // Player velocity (x-component).
-    pub pvy: [f32; N_PLAYERS],     // Player velocity (y-component).
-    pub pfacing: [f32; N_PLAYERS], // Player facing angle in radians.
-    pub pstamina: [f32; N_PLAYERS],  // Player stamina (0.0 to 1.0).
+    pub px: [f32; N_PLAYERS],       // Player position (x-coordinate).
+    pub py: [f32; N_PLAYERS],       // Player position (y-coordinate).
+    pub pvx: [f32; N_PLAYERS],      // Player velocity (x-component).
+    pub pvy: [f32; N_PLAYERS],      // Player velocity (y-component).
+    pub pfacing: [f32; N_PLAYERS],  // Player facing angle in radians.
+    pub pstamina: [f32; N_PLAYERS], // Player stamina (0.0 to 1.0).
 
     // --- Player AI and Command State ---
     pub pcommand: [PlayerCommandState; N_PLAYERS], // Current command for each player (e.g., target velocity).
     pub prole_override: [RoleOverrideState; N_PLAYERS], // Temporary role overrides.
-    pub plast_eval_tick: [u32; N_PLAYERS],        // The tick when the player's AI last made a decision.
+    pub plast_eval_tick: [u32; N_PLAYERS], // The tick when the player's AI last made a decision.
 }
 
 impl Default for World {
@@ -335,7 +335,7 @@ pub fn compute_params_20(inp: &PlayerInput20) -> PlayerParams {
     let bmi = mass_kg / (height_m * height_m);
     let dh = clampf((height_m - 1.80) / 0.25, -1.0, 1.0); // Height deviation
     let dm = clampf((mass_kg - 75.0) / 30.0, -1.0, 1.0); // Mass deviation
-    let db = clampf((bmi - 24.0) / 8.0, -1.0, 1.0);      // BMI deviation
+    let db = clampf((bmi - 24.0) / 8.0, -1.0, 1.0); // BMI deviation
 
     // --- Initial Parameter Mapping ---
     // Map base 1-20 attributes to initial physics values.

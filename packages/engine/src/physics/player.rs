@@ -36,7 +36,8 @@ fn integrate_player(world: &mut World, idx: usize, dt: f32) {
         let control_dist = R_BODY + R_BALL;
 
         // Target for the ball is right in front of the player's new position
-        let ball_target_pos = pos + Vec2::new(player_heading.cos(), player_heading.sin()) * control_dist;
+        let ball_target_pos =
+            pos + Vec2::new(player_heading.cos(), player_heading.sin()) * control_dist;
 
         // Nudge the ball towards this target
         let current_ball_pos = world.ball_pos();

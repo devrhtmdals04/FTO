@@ -3,7 +3,7 @@ import init, { WasmEngine } from "../../../../packages/engine/pkg/engine.js";
 
 import { SimView, PlayerView, TeamId, PlayerProfile } from "../state";
 
-const VIEW_VERSION_EXPECTED = 2;
+const VIEW_VERSION_EXPECTED = 3;
 const PLAYER_VIEW_SIZE = 32; // x,y,hx,hy,vis,vis_y,vis_xz (7*f32) + team (u8) + padding (3*u8) = 32 bytes
 const N_PLAYERS = 22;
 const SIM_VIEW_SIZE = 4 + 4 + 12 + (N_PLAYERS * PLAYER_VIEW_SIZE); // version+padding (4) + tick (4) + ball (12) + players (22*32)
@@ -42,8 +42,14 @@ function parseSimView(viewData: Uint8Array): SimView {
     const vis    = dv.getFloat32(off, true); off += 4;
     const vis_y  = dv.getFloat32(off, true); off += 4;
     const vis_xz = dv.getFloat32(off, true); off += 4;
-    const team   = dv.getUint8(off);          off += 1;
-    off += 3; // pad
+  const team   = dv.getUint8(off);          off += 1;
+  let hasBall = false;
+  if (ver >= 3) {
+    hasBall = dv.getUint8(off) !== 0; off += 1;
+    off += 2;
+  } else {
+    off += 3; // legacy padding
+  }
 
     // heading 정규화(안전)
     const n = Math.hypot(hx, hy) || 1;
@@ -54,6 +60,7 @@ function parseSimView(viewData: Uint8Array): SimView {
       vis_y,
       vis_xz,
       team: (team === 0 ? 0 : 1) as TeamId,
+      has_ball: hasBall,
     };
   }
 

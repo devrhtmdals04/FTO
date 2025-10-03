@@ -1,7 +1,7 @@
 use crate::ai::actions::pass_action::PassAction;
 use crate::ai::actions::shoot_action::ShootAction;
 use crate::ai::fsm::{Action, ActionContext, ActionPayload, ActionUpdate};
-use crate::ai::perception::{Perception, PassTarget};
+use crate::ai::perception::{PassTarget, Perception};
 use crate::commands::Cmd;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,12 +60,8 @@ impl Action for OnTheBallAction {
                 let move_dir = (dribble_target - player_pos).normalize();
                 ActionUpdate::Move(move_dir)
             }
-            OnBallSubState::ExecutingPass => {
-                self.pass_action.update(context)
-            }
-            OnBallSubState::ExecutingShoot => {
-                self.shoot_action.update(context)
-            }
+            OnBallSubState::ExecutingPass => self.pass_action.update(context),
+            OnBallSubState::ExecutingShoot => self.shoot_action.update(context),
         }
     }
 

@@ -44,7 +44,11 @@ impl Engine {
         self.process_commands();
         self.update_ai();
         step_players(&mut self.world, &self.ai_active);
-        step_ball(&mut self.world, &self.physics.spatial, &mut self._rng.as_mut());
+        step_ball(
+            &mut self.world,
+            &self.physics.spatial,
+            &mut self._rng.as_mut(),
+        );
         self.update_possession();
         handle_restarts(&mut self.world);
         update_referee(&mut self.world);
@@ -68,7 +72,9 @@ impl Engine {
                     };
 
                     if let Some(cmd) = fsm.tick(&mut self.world, i, team_state) {
-                        self.commands.push(self.world.tick, self.world.tick + 1, cmd).ok();
+                        self.commands
+                            .push(self.world.tick, self.world.tick + 1, cmd)
+                            .ok();
                     }
                 }
             }
@@ -132,14 +138,36 @@ impl Engine {
                         slot.ttl = ttl;
                     }
                 }
-                Cmd::LoftedPass { player_id, tx, ty, loft } => {
-                    self.apply_ball_command(player_id, Vec2::new(tx, ty), 14.0, loft.clamp(0.0, 1.0) * 18.0, true);
+                Cmd::LoftedPass {
+                    player_id,
+                    tx,
+                    ty,
+                    loft,
+                } => {
+                    self.apply_ball_command(
+                        player_id,
+                        Vec2::new(tx, ty),
+                        14.0,
+                        loft.clamp(0.0, 1.0) * 18.0,
+                        true,
+                    );
                 }
                 Cmd::GroundPass { player_id, tx, ty } => {
                     self.apply_ball_command(player_id, Vec2::new(tx, ty), 11.0, 0.0, false);
                 }
-                Cmd::Shoot { player_id, tx, ty, power } => {
-                    self.apply_ball_command(player_id, Vec2::new(tx, ty), 18.0 + 8.0 * power, 6.0 * power, true);
+                Cmd::Shoot {
+                    player_id,
+                    tx,
+                    ty,
+                    power,
+                } => {
+                    self.apply_ball_command(
+                        player_id,
+                        Vec2::new(tx, ty),
+                        18.0 + 8.0 * power,
+                        6.0 * power,
+                        true,
+                    );
                 }
                 Cmd::MovePlayerVelocity { pid, vx, vy } => {
                     if let Some(pcmd) = self.world.pcommand.get_mut(pid as usize) {
@@ -148,7 +176,8 @@ impl Engine {
                 }
                 Cmd::MovePlayerTarget { pid, tx, ty } => {
                     if let Some(pcmd) = self.world.pcommand.get_mut(pid as usize) {
-                        let player_pos = Vec2::new(self.world.px[pid as usize], self.world.py[pid as usize]);
+                        let player_pos =
+                            Vec2::new(self.world.px[pid as usize], self.world.py[pid as usize]);
                         let target_pos = Vec2::new(tx, ty);
                         let direction = (target_pos - player_pos).normalize();
                         let player_params = self.world.p_params[pid as usize];
@@ -159,7 +188,14 @@ impl Engine {
         }
     }
 
-    fn apply_ball_command(&mut self, player_id: u8, target: Vec2, base_speed: f32, loft: f32, airborne: bool) {
+    fn apply_ball_command(
+        &mut self,
+        player_id: u8,
+        target: Vec2,
+        base_speed: f32,
+        loft: f32,
+        airborne: bool,
+    ) {
         if !self.world.player_has_ball(player_id as usize) {
             return;
         }
@@ -221,7 +257,10 @@ impl Engine {
     pub fn enqueue_command(&mut self, js_value: wasm_bindgen::JsValue) {
         match parse_command(js_value) {
             Ok(parsed) => {
-                if let Err(err) = self.commands.push(self.world.tick, parsed.apply_tick, parsed.cmd) {
+                if let Err(err) = self
+                    .commands
+                    .push(self.world.tick, parsed.apply_tick, parsed.cmd)
+                {
                     log_command_error(err);
                 }
             }

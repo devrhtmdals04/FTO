@@ -30,7 +30,7 @@ use crate::snapshot::{DeltaBuffer, SnapshotBuffer};
 use crate::state::N_PLAYERS;
 use serde_json;
 
-const VIEW_VERSION: u8 = 2;
+const VIEW_VERSION: u8 = 3;
 
 #[derive(Serialize)]
 struct PlayerProfileData {
@@ -164,8 +164,10 @@ impl WasmEngine {
             write_f32(&mut buffer, params.vis_scale); // vis (legacy)
             write_f32(&mut buffer, vis_y); // vis_y
             write_f32(&mut buffer, vis_xz); // vis_xz
+
             write_u8(&mut buffer, world.p_team[i]); // team
-            buffer.extend_from_slice(&[0, 0, 0]); // Padding
+            write_u8(&mut buffer, if world.player_has_ball(i) { 1 } else { 0 });
+            buffer.extend_from_slice(&[0, 0]); // Padding for alignment
         }
 
         buffer
