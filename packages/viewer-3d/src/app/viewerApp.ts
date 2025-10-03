@@ -667,8 +667,8 @@ export class ViewerApp {
         code: 'KeyO',
         keyLabel: 'O',
         description: 'Toggle Tactics Panel',
-        handler: () => {
-          this.tacticsStore?.toggle();
+        handler: async () => {
+          await this.tacticsStore?.openAndEnsureTactic();
         },
         suppressRepeat: true,
         showInPanel: true,

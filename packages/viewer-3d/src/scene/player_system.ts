@@ -206,7 +206,7 @@ export class PlayerSystem {
 
       if (this.isMasterDebug) {
         if (i === 0) {
-            console.log(`[Debug] P${mappedIdx}: speed=${speed.toFixed(2)}, wIdle=${wIdle.toFixed(2)}, wRun=${wRun.toFixed(2)}`);
+            //console.log(`[Debug] P${mappedIdx}: speed=${speed.toFixed(2)}, wIdle=${wIdle.toFixed(2)}, wRun=${wRun.toFixed(2)}`);
         }
         const actionName = this.getCurrentActionName(i);
         updateDebugText(p, actionName);

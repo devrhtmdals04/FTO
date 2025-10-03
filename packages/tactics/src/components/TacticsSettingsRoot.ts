@@ -162,6 +162,7 @@ const TACTICS_PANEL_STYLES = `
   cursor: pointer;
   font-size: 14px;
   transition: background 120ms ease;
+  margin-top: auto;
 }
 
 [data-tactics-root] .fto-tactics-panel .save-btn:hover {
@@ -174,6 +175,40 @@ const TACTICS_PANEL_STYLES = `
   padding: 12px;
   background: rgba(255, 255, 255, 0.1);
   font-size: 13px;
+}
+
+[data-tactics-root] .tab-nav {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+[data-tactics-root] .tab-btn {
+  border: none;
+  background: transparent;
+  color: #a0a0a0;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 14px;
+  border-bottom: 2px solid transparent;
+  transition: all 120ms ease;
+}
+
+[data-tactics-root] .tab-btn:hover {
+  color: #f5f5f5;
+}
+
+[data-tactics-root] .tab-btn.active {
+  color: #f5f5f5;
+  font-weight: 600;
+  border-bottom-color: rgba(88, 166, 255, 0.8);
+}
+
+[data-tactics-root] .tab-content {
+  padding: 12px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 `;
 
@@ -189,6 +224,9 @@ export class TacticsSettingsRoot {
   readonly #mount: HTMLElement;
   readonly #store: TacticsStore;
   readonly #unsubscribe: () => void;
+
+  #activeDetailsTab: 'defense' | 'offense' | 'transition' = 'defense';
+  #lastRenderedTacticId: string | null = null;
 
   constructor({ mount, store }: TacticsSettingsRootOptions) {
     this.#mount = mount;
@@ -224,6 +262,11 @@ export class TacticsSettingsRoot {
   render = (state: TacticsState): void => {
     const { isOpen, tactics, activeTactic, isLoading } = state;
 
+    if (activeTactic?.id !== this.#lastRenderedTacticId) {
+      this.#activeDetailsTab = 'defense'; // 다른 전술 선택 시 탭 초기화
+    }
+    this.#lastRenderedTacticId = activeTactic?.id ?? null;
+
     // 패널이 닫혀있으면 아무것도 그리지 않습니다.
     if (!isOpen) {
       this.#mount.innerHTML = '';
@@ -257,25 +300,38 @@ export class TacticsSettingsRoot {
     this.#attachEventListeners();
   };
 
-  /** 전술 상세 편집 UI를 렌더링합니다. */
+  /** 전술 상세 편집 UI를 탭 구조로 렌더링합니다. */
   #renderDetails = (tactic: Tactic): string => {
-    return `
-      <h3><input type="text" name="label" value="${tactic.label}" class="tactic-label-input"/></h3>
-      <div class="tactic-grid">
-        <div class="grid-item">
-          <h4>Out of Possession (수비 시)</h4>
-          <label>Formation: <input type="text" name="out_of_possession.formation" value="${tactic.out_of_possession.formation}" /></label>
-        </div>
-        <div class="grid-item">
-          <h4>In Possession (공격 시)</h4>
-          <label>Formation: <input type="text" name="in_possession.formation" value="${tactic.in_possession.formation}" /></label>
-        </div>
-        <div class="grid-item grid-span-2">
-          <h4>Transition (공 뺏겼을 때)</h4>
+    const tabContent = {
+      defense: `
+        <h4>Out of Possession (수비 시)</h4>
+        <label>Formation: <input type="text" name="out_of_possession.formation" value="${tactic.out_of_possession.formation}" /></label>
+      `,
+      offense: `
+        <h4>In Possession (공격 시)</h4>
+        <label>Formation: <input type="text" name="in_possession.formation" value="${tactic.in_possession.formation}" /></label>
+      `,
+      transition: `
+        <h4>Transition (공 뺏겼을 때)</h4>
+        <label>On Loss:
           <select name="transition.on_loss">
             <option value="fall_back" ${tactic.transition.on_loss === 'fall_back' ? 'selected' : ''}>대형 유지 (Fall Back)</option>
             <option value="press_on_heavy_touch" ${tactic.transition.on_loss === 'press_on_heavy_touch' ? 'selected' : ''}>즉시 압박 (Press)</option>
           </select>
+        </label>
+      `,
+    };
+
+    return `
+      <h3><input type="text" name="label" value="${tactic.label}" class="tactic-label-input"/></h3>
+      <div class="tactic-details-tabs">
+        <div class="tab-nav">
+            <button class="tab-btn ${this.#activeDetailsTab === 'defense' ? 'active' : ''}" data-tab="defense">수비</button>
+            <button class="tab-btn ${this.#activeDetailsTab === 'offense' ? 'active' : ''}" data-tab="offense">공격</button>
+            <button class="tab-btn ${this.#activeDetailsTab === 'transition' ? 'active' : ''}" data-tab="transition">전환</button>
+        </div>
+        <div class="tab-content">
+            ${tabContent[this.#activeDetailsTab]}
         </div>
       </div>
       <button class="save-btn">Save Changes</button>
@@ -304,11 +360,25 @@ export class TacticsSettingsRoot {
     this.#mount.querySelectorAll('input, select').forEach(el => {
       el.addEventListener('change', this.#handleInputChange);
     });
+
+    this.#mount.querySelectorAll('.tab-btn').forEach(el => {
+      el.addEventListener('click', (e) => {
+        const tab = (e.currentTarget as HTMLElement).dataset.tab;
+        if (tab === 'defense' || tab === 'offense' || tab === 'transition') {
+          this.#handleTabChange(tab);
+        }
+      });
+    });
   };
 
   #handleCreate = () => {
     const label = prompt('New tactic name:');
     if (label) this.#store.createTactic(label);
+  };
+
+  #handleTabChange = (tab: 'defense' | 'offense' | 'transition') => {
+    this.#activeDetailsTab = tab;
+    this.render(this.#store.snapshot); // 새 탭을 활성화하여 다시 렌더링
   };
 
   /** 입력 필드 변경 시 스토어의 상태를 업데이트합니다. */

@@ -49,6 +49,43 @@ export class TacticsStore {
   close = () => this.#update({ isOpen: false });
   toggle = () => this.#update({ isOpen: !this.#state.isOpen });
 
+  /**
+   * 패널을 열고, 활성화된 전술이 없으면 첫번째 또는 새 전술을 활성화합니다.
+   * 이미 열려있으면 닫습니다.
+   */
+  openAndEnsureTactic = async (): Promise<void> => {
+    if (this.#state.isOpen) {
+      this.close();
+      return;
+    }
+
+    this.#update({ isLoading: true, isOpen: true });
+
+    // 전술 목록이 비어있으면 로드합니다.
+    if (this.#state.tactics.length === 0) {
+      const tactics = await this.#bridge.listTactics();
+      this.#update({ tactics });
+    }
+
+    let tacticToSelect = this.#state.activeTactic;
+
+    if (!tacticToSelect) {
+      if (this.#state.tactics.length > 0) {
+        // 활성 전술이 없으면 목록의 첫 번째 전술을 선택합니다.
+        const firstTacticId = this.#state.tactics[0].id;
+        tacticToSelect = await this.#bridge.loadTactic(firstTacticId);
+      } else {
+        // 전술이 하나도 없으면 새로 생성합니다.
+        tacticToSelect = createEmptyTactic('Default Tactic');
+        await this.#bridge.saveTactic(tacticToSelect);
+        const tactics = await this.#bridge.listTactics();
+        this.#update({ tactics });
+      }
+    }
+
+    this.#update({ activeTactic: tacticToSelect, isLoading: false });
+  };
+
   // --- 데이터 관리 액션 ---
 
   /** 전술 목록을 비동기적으로 불러옵니다. */
