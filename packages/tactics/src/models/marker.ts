@@ -1,26 +1,4 @@
-// 선수의 6가지 핵심 능력치 타입
-export interface PlayerStats {
-    PAC: number; // 속력
-    SHO: number; // 슈팅
-    PAS: number; // 패스
-    DRI: number; // 드리블
-    DEF: number; // 수비
-    PHY: number; // 피지컬
-}
-
-// 선수 포지션 타입 (정의된 값만 허용)
-export type Position = 'FW' | 'MF' | 'DF' | 'GK';
-
-// 선수 객체의 전체 구조 타입
-export interface Player {
-    id: number;
-    number: number;
-    name: string;
-    position: Position;
-    stats: PlayerStats;
-    x?: number; // 렌더링 시 사용할 초기 x좌표 (선택)
-    y?: number; // 렌더링 시 사용할 초기 y좌표 (선택)
-}
+import type { Player, PlayerStats, Position } from '../../../squad/src/index';
 
 // --- 설정 상수 ---
 const POSITION_COLORS: Record<Position, string> = {

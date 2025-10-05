@@ -1,4 +1,6 @@
-export type TeamId = 0 | 1;
+import type { PlayerProfile, TeamId } from '../../squad/src/index';
+
+export type { PlayerProfile, TeamId };
 
 export interface PlayerView {
   x: number;  // meters
@@ -21,31 +23,6 @@ export interface SimView {
   tick: number;           // engine tick (20Hz)
   ball: BallView;
   players: PlayerView[];  // length 22
-}
-
-export interface PlayerProfile {
-  index: number;
-  team: TeamId;
-  name: string;
-  pace: number;
-  accel: number;
-  agility: number;
-  stamina: number;
-  strength: number;
-  first_touch: number;
-  passing: number;
-  vision: number;
-  finishing: number;
-  shot_power: number;
-  tackling: number;
-  interception: number;
-  heading: number;
-  jumping: number;
-  height_cm: number;
-  weight_kg: number;
-  foot: 'L' | 'R';
-  weak_foot: number; // 1..5
-  ctrl_radius: number;
 }
 
 // (옵션) 엔진 애니 힌트 이벤트 ABI (엔진 미지원이면 사용 안 함)

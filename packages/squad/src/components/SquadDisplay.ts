@@ -1,5 +1,6 @@
-import { SQUAD_A, SQUAD_B, PlayerProfile } from '../index';
-import { createPlayerMarker, Player } from '../../../tactics/src/models/marker';
+import { SQUAD_A, SQUAD_B, PlayerProfile, Player } from '../index';
+import { createPlayerMarker } from '../../../tactics/src/models/marker';
+import { createProfileOverlay } from './profile/ProfileOverlay';
 
 export interface SquadDisplayOptions {
   mount: HTMLElement;
@@ -9,7 +10,7 @@ export interface SquadDisplayOptions {
 function convertProfileToPlayer(profile: PlayerProfile, id: number): Player {
   return {
     id,
-    number: id, // Using index as number for now
+    number: profile.number || id, // Using index as number for now
     name: profile.name,
     position: profile.position,
     stats: {
@@ -25,14 +26,15 @@ function convertProfileToPlayer(profile: PlayerProfile, id: number): Player {
 
 export class SquadDisplay {
   readonly #options: SquadDisplayOptions;
-  #players: Player[];
+  #players: { player: Player, profile: PlayerProfile }[];
 
   constructor(options: SquadDisplayOptions) {
     this.#options = options;
     // Combine squads and convert them
-    this.#players = [...SQUAD_A, ...SQUAD_B].map((profile, index) => 
-      convertProfileToPlayer(profile, index + 1)
-    );
+    this.#players = [...SQUAD_A, ...SQUAD_B].map((profile, index) => ({
+      profile,
+      player: convertProfileToPlayer(profile, index + 1)
+    }));
     this.render();
   }
 
@@ -42,7 +44,7 @@ export class SquadDisplay {
     const squadList = document.createElement('div');
     squadList.className = 'squad-list';
 
-    this.#players.forEach(player => {
+    this.#players.forEach(({ player, profile }) => {
       const playerCard = document.createElement('div');
       playerCard.className = 'player-card';
       playerCard.dataset.playerId = player.id.toString();
@@ -50,7 +52,7 @@ export class SquadDisplay {
 
       playerCard.addEventListener('dragstart', (event) => {
         if (event.dataTransfer) {
-          event.dataTransfer.setData('application/json', JSON.stringify(player));
+          event.dataTransfer.setData('application/json', JSON.stringify(profile));
           event.dataTransfer.effectAllowed = 'move';
 
           const marker = createPlayerMarker(player);
@@ -63,6 +65,11 @@ export class SquadDisplay {
             document.body.removeChild(marker);
           }, 0);
         }
+      });
+
+      playerCard.addEventListener('click', () => {
+        const overlay = createProfileOverlay(profile);
+        document.body.appendChild(overlay);
       });
       
       const markerElement = createPlayerMarker(player);

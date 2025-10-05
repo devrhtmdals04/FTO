@@ -1,5 +1,6 @@
 import { TacticsSettingsRoot, TacticsStore, Tactic, EngineBridge, TacticSummary, PRESET_TACTICS, PitchDisplay } from '../src/index';
 import { SquadDisplay } from '../../squad/src/components/SquadDisplay';
+import type { PlayerProfile } from '../../squad/src/index';
 
 // --- Mock Engine Bridge ---
 // This simulates the communication with the Rust engine for the standalone demo.
@@ -155,11 +156,11 @@ if (leftPanelMount && presetListMount && pitchPanelMount && rightPanelMount) {
 
   pitchPanelMount.addEventListener('drop', (event) => {
     event.preventDefault();
-    const playerData = event.dataTransfer?.getData('application/json');
-    if (!playerData || !mainPitch) return;
+    const profileData = event.dataTransfer?.getData('application/json');
+    if (!profileData || !mainPitch) return;
 
-    const player = JSON.parse(playerData);
-    mainPitch.dropPlayer(player, event.clientX, event.clientY);
+    const profile: PlayerProfile = JSON.parse(profileData);
+    mainPitch.dropPlayer(profile, event.clientX, event.clientY);
   });
 
 } else {

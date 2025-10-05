@@ -1,5 +1,7 @@
 import type { Tactic } from '../models/tactic';
-import { createPlayerMarker, Player, Position } from '../models/marker';
+import { createPlayerMarker } from '../models/marker';
+import { createProfileOverlay } from '../../../squad/src/components/profile/ProfileOverlay';
+import type { Player, PlayerProfile, Position } from '../../../squad/src/index';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -12,6 +14,23 @@ const STRIPE_COLOR = 'rgba(0, 0, 0, 0.08)';
 const LINE_COLOR = 'rgba(255, 255, 255, 0.7)';
 const LINE_WIDTH = '1';
 
+function convertProfileToPlayer(profile: PlayerProfile, id: number): Player {
+  return {
+    id,
+    number: profile.number || id,
+    name: profile.name,
+    position: profile.position,
+    stats: {
+      PAC: profile.pace * 5,
+      SHO: (profile.finishing + profile.shot_power) / 2 * 5,
+      PAS: (profile.passing + profile.vision) / 2 * 5,
+      DRI: (profile.agility + profile.first_touch) / 2 * 5,
+      DEF: (profile.tackling + profile.interception) / 2 * 5,
+      PHY: (profile.strength + profile.stamina + profile.jumping) / 3 * 5,
+    }
+  };
+}
+
 export interface PitchDisplayOptions {
   mount: HTMLElement;
   tactic: Tactic;
@@ -20,7 +39,7 @@ export interface PitchDisplayOptions {
 
 export class PitchDisplay {
   readonly #options: PitchDisplayOptions;
-  #players: (Player & { x: number; y: number })[] = [];
+  #players: (PlayerProfile & { x: number; y: number; id: number })[] = [];
   #svg: SVGSVGElement;
 
   constructor(options: PitchDisplayOptions) {
@@ -37,7 +56,7 @@ export class PitchDisplay {
     return svg;
   }
 
-  public dropPlayer(player: Player, clientX: number, clientY: number): void {
+  public dropPlayer(profile: PlayerProfile, clientX: number, clientY: number): void {
     const svgRect = this.#svg.getBoundingClientRect();
     const svgX = clientX - svgRect.left;
     const svgY = clientY - svgRect.top;
@@ -50,9 +69,9 @@ export class PitchDisplay {
     const dropX = svgP.x - MARGIN;
     const dropY = svgP.y - MARGIN;
 
-    const alreadyInLineup = this.#players.some(p => p.id === player.id);
+    const alreadyInLineup = this.#players.some(p => p.name === profile.name); // Use name to check for duplicates
     if (!alreadyInLineup) {
-      this.#players.push({ ...player, x: dropX, y: dropY });
+      this.#players.push({ ...profile, x: dropX, y: dropY, id: this.#players.length + 1 });
       this.render();
     }
   }
@@ -62,14 +81,12 @@ export class PitchDisplay {
     group.setAttribute('transform', `translate(${MARGIN}, ${MARGIN})`);
     this.#svg.appendChild(group);
 
-    // Base pitch color
     const baseRect = document.createElementNS(SVG_NS, 'rect');
     baseRect.setAttribute('width', PITCH_WIDTH.toString());
     baseRect.setAttribute('height', PITCH_HEIGHT.toString());
     baseRect.setAttribute('fill', PITCH_COLOR);
     group.appendChild(baseRect);
 
-    // ... (rest of the drawPitch logic is the same as before)
     const line = (x1: number, y1: number, x2: number, y2: number) => {
       const l = document.createElementNS(SVG_NS, 'line');
       l.setAttribute('x1', x1.toString());
@@ -80,6 +97,7 @@ export class PitchDisplay {
       l.setAttribute('stroke-width', LINE_WIDTH);
       group.appendChild(l);
     };
+
     const boundary = document.createElementNS(SVG_NS, 'rect');
     boundary.setAttribute('x', '0');
     boundary.setAttribute('y', '0');
@@ -89,6 +107,7 @@ export class PitchDisplay {
     boundary.setAttribute('stroke-width', LINE_WIDTH);
     boundary.setAttribute('fill', 'none');
     group.appendChild(boundary);
+
     const centerCircle = document.createElementNS(SVG_NS, 'circle');
     centerCircle.setAttribute('cx', (PITCH_WIDTH / 2).toString());
     centerCircle.setAttribute('cy', (PITCH_HEIGHT / 2).toString());
@@ -97,10 +116,13 @@ export class PitchDisplay {
     centerCircle.setAttribute('stroke-width', LINE_WIDTH);
     centerCircle.setAttribute('fill', 'none');
     group.appendChild(centerCircle);
+
     line(0, PITCH_HEIGHT / 2, PITCH_WIDTH, PITCH_HEIGHT / 2);
+
     for (const side of ['top', 'bottom']) {
       const yMultiplier = side === 'top' ? 1 : -1;
       const yOffset = side === 'top' ? 0 : PITCH_HEIGHT;
+
       const pBoxWidth = 160;
       const pBoxHeight = 66;
       const pBoxX = (PITCH_WIDTH - pBoxWidth) / 2;
@@ -108,6 +130,7 @@ export class PitchDisplay {
       line(pBoxX, yOffset, pBoxX, pBoxLineY);
       line(pBoxX + pBoxWidth, yOffset, pBoxX + pBoxWidth, pBoxLineY);
       line(pBoxX, pBoxLineY, pBoxX + pBoxWidth, pBoxLineY);
+
       const gBoxWidth = 80;
       const gBoxHeight = 24;
       const gBoxX = (PITCH_WIDTH - gBoxWidth) / 2;
@@ -115,6 +138,7 @@ export class PitchDisplay {
       line(gBoxX, yOffset, gBoxX, gBoxLineY);
       line(gBoxX + gBoxWidth, yOffset, gBoxX + gBoxWidth, gBoxLineY);
       line(gBoxX, gBoxLineY, gBoxX + gBoxWidth, gBoxLineY);
+
       const goalWidth = 32;
       const goalHeight = 4;
       const goal = document.createElementNS(SVG_NS, 'rect');
@@ -124,6 +148,7 @@ export class PitchDisplay {
       goal.setAttribute('height', goalHeight.toString());
       goal.setAttribute('fill', LINE_COLOR);
       group.appendChild(goal);
+
       const spotY = yOffset + yMultiplier * 40;
       const penaltySpot = document.createElementNS(SVG_NS, 'circle');
       penaltySpot.setAttribute('cx', (PITCH_WIDTH / 2).toString());
@@ -131,6 +156,7 @@ export class PitchDisplay {
       penaltySpot.setAttribute('r', '1.5');
       penaltySpot.setAttribute('fill', LINE_COLOR);
       group.appendChild(penaltySpot);
+
       const arc = document.createElementNS(SVG_NS, 'path');
       const arcRadius = 24;
       const arcSweepFlag = side === 'top' ? 1 : 0;
@@ -144,6 +170,7 @@ export class PitchDisplay {
       arc.setAttribute('fill', 'none');
       group.appendChild(arc);
     }
+
     const cornerRadius = 6;
     const cornerArc = (x1: number, y1: number, x2: number, y2: number, sweep: number) => {
         const path = document.createElementNS(SVG_NS, 'path');
@@ -165,12 +192,13 @@ export class PitchDisplay {
     group.setAttribute('transform', `translate(${MARGIN}, ${MARGIN})`);
     this.#svg.appendChild(group);
 
-    this.#players.forEach(player => {
-      this.drawPlayer(group, player, player.x, player.y);
+    this.#players.forEach(profile => {
+      const player = convertProfileToPlayer(profile, profile.id);
+      this.drawPlayer(group, player, profile, profile.x, profile.y);
     });
   }
 
-  private drawPlayer(svgGroup: SVGGElement, player: Player, cx: number, cy: number): void {
+  private drawPlayer(svgGroup: SVGGElement, player: Player, profile: PlayerProfile, cx: number, cy: number): void {
     const markerSize = 40;
     const wrapper = document.createElementNS('http://www.w3.org/1999/xhtml', 'div');
     wrapper.style.width = `${markerSize}px`;
@@ -190,6 +218,12 @@ export class PitchDisplay {
     foreignObject.setAttribute('y', (cy - markerSize / 2).toString());
     foreignObject.setAttribute('width', markerSize.toString());
     foreignObject.setAttribute('height', markerSize.toString());
+    foreignObject.style.cursor = 'pointer';
+
+    foreignObject.addEventListener('click', () => {
+      const overlay = createProfileOverlay(profile);
+      document.body.appendChild(overlay);
+    });
     
     foreignObject.appendChild(wrapper);
     svgGroup.appendChild(foreignObject);

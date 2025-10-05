@@ -18,6 +18,7 @@ pub const N_TEAMS: usize = 2;
 #[derive(Clone, Copy, Serialize)]
 pub struct PlayerInput20 {
     pub name: &'static str,
+    pub position: PlayerRole,
     pub pace: u8,         // Top speed
     pub accel: u8,        // Acceleration
     pub agility: u8,      // Turning ability
