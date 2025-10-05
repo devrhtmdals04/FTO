@@ -1,15 +1,12 @@
-import { createEmptyTactic, Tactic } from '../models/tactic';
+import { Tactic } from '../models/tactic';
 import type { TacticsStore, TacticsState } from '../state/tacticsStore';
-import { PitchDisplay } from './PitchDisplay';
+import { TacticsEditor } from './TacticsEditor';
 
 const STYLE_ELEMENT_ID = 'fto-tactics-panel-styles';
 const TACTICS_PANEL_STYLES = `
 [data-tactics-root] {
-  position: fixed;
-  top: 72px;
-  right: 12px;
-  z-index: 1200;
-  pointer-events: none;
+  width: 100%;
+  height: 100%;
 }
 
 [data-tactics-root]:empty {
@@ -17,58 +14,108 @@ const TACTICS_PANEL_STYLES = `
 }
 
 [data-tactics-root] .fto-tactics-panel {
-  width: 360px;
-  max-height: 70vh;
-  display: grid;
-  grid-template-columns: 160px 1fr;
+  width: 100%;
+  height: 100%;
+  max-height: 100vh; /* Use viewport height for max-height */
+  display: flex;
+  flex-direction: column;
   gap: 12px;
-  padding: 16px;
-  border-radius: 10px;
-  background: rgba(12, 12, 12, 0.92);
+  background: transparent; /* The container will provide the background */
   color: #f5f5f5;
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
-  backdrop-filter: blur(6px);
   font-size: 14px;
-  pointer-events: auto;
   overflow: hidden;
 }
 
 [data-tactics-root] .fto-tactics-panel > .close-btn {
-  grid-column: 1 / -1;
-  justify-self: end;
-  border: none;
-  background: transparent;
-  color: inherit;
-  font-size: 20px;
-  cursor: pointer;
-  line-height: 1;
+  display: none; /* No longer needed in this layout */
 }
 
-[data-tactics-root] .fto-tactics-panel .list-section {
+.fto-tactics-selector {
+  position: relative;
+}
+
+.fto-tactics-selector .selector-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(0, 0, 0, 0.35);
+  color: inherit;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.fto-tactics-selector .selector-trigger:hover {
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.fto-tactics-selector .selector-trigger:focus-visible {
+  outline: 2px solid rgba(88, 166, 255, 0.6);
+  outline-offset: 2px;
+}
+
+.fto-tactics-selector .selector-label {
+  font-weight: 600;
+  opacity: 0.75;
+}
+
+.fto-tactics-selector .selector-value {
+  flex: 1 1 auto;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fto-tactics-selector .selector-chevron {
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.fto-tactics-selector .selector-overlay {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  width: 100%;
+  max-height: 320px;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(16, 16, 16, 0.95);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  min-width: 0;
-  min-height: 0;
+  gap: 10px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-6px);
+  transition: opacity 120ms ease, transform 120ms ease;
+  z-index: 20;
 }
 
-[data-tactics-root] .fto-tactics-panel .list-section h3 {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
+.fto-tactics-selector.open .selector-overlay {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
 }
 
-[data-tactics-root] .fto-tactics-panel .list-section ul {
+.fto-tactics-selector .tactic-list {
   margin: 0;
   padding: 0;
   list-style: none;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  max-height: 220px;
   overflow-y: auto;
 }
 
-[data-tactics-root] .fto-tactics-panel .tactic-item {
+.fto-tactics-selector .tactic-item {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -79,19 +126,27 @@ const TACTICS_PANEL_STYLES = `
   transition: background 120ms ease;
 }
 
-[data-tactics-root] .fto-tactics-panel .tactic-item:hover {
+.fto-tactics-selector .tactic-item.empty {
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.08);
+  color: #b5b5b5;
+  cursor: default;
+  pointer-events: none;
+}
+
+.fto-tactics-selector .tactic-item:hover {
   background: rgba(255, 255, 255, 0.2);
 }
 
-[data-tactics-root] .fto-tactics-panel .tactic-item.active {
+.fto-tactics-selector .tactic-item.active {
   outline: 2px solid rgba(88, 166, 255, 0.6);
 }
 
-[data-tactics-root] .fto-tactics-panel .tactic-item span {
+.fto-tactics-selector .tactic-item span {
   flex: 1 1 auto;
 }
 
-[data-tactics-root] .fto-tactics-panel .delete-btn {
+.fto-tactics-selector .delete-btn {
   border: none;
   background: transparent;
   color: inherit;
@@ -100,8 +155,8 @@ const TACTICS_PANEL_STYLES = `
   line-height: 1;
 }
 
-[data-tactics-root] .fto-tactics-panel .create-btn {
-  align-self: flex-start;
+.fto-tactics-selector .create-btn {
+  align-self: flex-end;
   border: none;
   border-radius: 6px;
   padding: 8px 14px;
@@ -112,7 +167,7 @@ const TACTICS_PANEL_STYLES = `
   transition: background 120ms ease;
 }
 
-[data-tactics-root] .fto-tactics-panel .create-btn:hover {
+.fto-tactics-selector .create-btn:hover {
   background: rgba(88, 166, 255, 0.35);
 }
 
@@ -123,53 +178,9 @@ const TACTICS_PANEL_STYLES = `
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
-}
-
-[data-tactics-root] .fto-tactics-panel .details-section h3 {
-  margin: 0;
-}
-
-[data-tactics-root] .fto-tactics-panel .tactic-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-
-[data-tactics-root] .fto-tactics-panel .grid-span-2 {
-  grid-column: span 2;
-}
-
-[data-tactics-root] .fto-tactics-panel label {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-size: 12px;
-}
-
-[data-tactics-root] .fto-tactics-panel input,
-[data-tactics-root] .fto-tactics-panel select {
-  width: 100%;
-  border-radius: 6px;
-  border: none;
-  padding: 8px;
-  font-size: 14px;
-}
-
-[data-tactics-root] .fto-tactics-panel .save-btn {
-  align-self: flex-start;
-  border: none;
-  border-radius: 6px;
-  padding: 8px 16px;
-  background: rgba(88, 166, 255, 0.35);
-  color: inherit;
-  cursor: pointer;
-  font-size: 14px;
-  transition: background 120ms ease;
-  margin-top: 8px;
-}
-
-[data-tactics-root] .fto-tactics-panel .save-btn:hover {
-  background: rgba(88, 166, 255, 0.45);
+  padding: 12px;
+  background: rgba(0,0,0,0.2);
+  border-radius: 8px;
 }
 
 [data-tactics-root] .fto-tactics-panel .placeholder,
@@ -179,52 +190,12 @@ const TACTICS_PANEL_STYLES = `
   background: rgba(255, 255, 255, 0.1);
   font-size: 13px;
 }
-
-[data-tactics-root] .tab-nav {
-  display: flex;
-  gap: 4px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
-}
-
-[data-tactics-root] .tab-btn {
-  border: none;
-  background: transparent;
-  color: #a0a0a0;
-  padding: 8px 12px;
-  cursor: pointer;
-  font-size: 14px;
-  border-bottom: 2px solid transparent;
-  transition: all 120ms ease;
-}
-
-[data-tactics-root] .tab-btn:hover {
-  color: #f5f5f5;
-}
-
-[data-tactics-root] .tab-btn.active {
-  color: #f5f5f5;
-  font-weight: 600;
-  border-bottom-color: rgba(88, 166, 255, 0.8);
-}
-
-[data-tactics-root] .tab-content {
-  padding: 12px 4px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-[data-tactics-root] .pitch-container {
-  background: #222;
-  border-radius: 6px;
-  padding: 8px;
-  margin-bottom: 8px;
-}
 `;
 
 export interface TacticsSettingsRootOptions {
   mount: HTMLElement;
   store: TacticsStore;
+  listMount?: HTMLElement | null;
 }
 
 /**
@@ -234,71 +205,64 @@ export class TacticsSettingsRoot {
   readonly #mount: HTMLElement;
   readonly #store: TacticsStore;
   readonly #unsubscribe: () => void;
+  readonly #listMount: HTMLElement | null;
+  readonly #doc: Document;
+  #isListOpen = false;
 
-  #activeDetailsTab: 'defense' | 'offense' | 'transition' = 'defense';
-  #lastRenderedTacticId: string | null = null;
-
-  constructor({ mount, store }: TacticsSettingsRootOptions) {
+  constructor({ mount, store, listMount = null }: TacticsSettingsRootOptions) {
     this.#mount = mount;
     this.#store = store;
+    this.#listMount = listMount;
+    this.#doc = this.#mount.ownerDocument ?? document;
 
     this.#mount.dataset.tacticsRoot = 'true';
     this.#ensureStyles();
 
-    // 스토어의 상태가 변경될 때마다 render 함수를 호출하도록 구독합니다.
     this.#unsubscribe = this.#store.subscribe(this.render);
-    // 초기 데이터 로드
     this.#store.loadTactics();
   }
 
-  /** 컴포넌트 파괴 시 이벤트 리스너를 정리합니다. */
   destroy = (): void => {
     this.#unsubscribe();
     this.#mount.innerHTML = '';
+    if (this.#listMount) {
+      this.#listMount.innerHTML = '';
+    }
+    this.#doc.removeEventListener('click', this.#handleDocumentClick);
   };
 
   #ensureStyles = (): void => {
-    const doc = this.#mount.ownerDocument ?? document;
-    if (doc.getElementById(STYLE_ELEMENT_ID)) {
+    if (this.#doc.getElementById(STYLE_ELEMENT_ID)) {
       return;
     }
-    const style = doc.createElement('style');
+    const style = this.#doc.createElement('style');
     style.id = STYLE_ELEMENT_ID;
     style.textContent = TACTICS_PANEL_STYLES;
-    doc.head.appendChild(style);
+    this.#doc.head.appendChild(style);
   };
 
-  /** UI를 렌더링하는 메인 함수 */
   render = (state: TacticsState): void => {
-    const { isOpen, tactics, activeTactic, isLoading } = state;
+    const { isOpen, activeTactic, isLoading } = state;
 
-    if (activeTactic?.id !== this.#lastRenderedTacticId) {
-      this.#activeDetailsTab = 'defense'; // 다른 전술 선택 시 탭 초기화
-    }
-    this.#lastRenderedTacticId = activeTactic?.id ?? null;
-
-    // 패널이 닫혀있으면 아무것도 그리지 않습니다.
     if (!isOpen) {
+      this.#isListOpen = false;
+      this.#doc.removeEventListener('click', this.#handleDocumentClick);
       this.#mount.innerHTML = '';
+      if (this.#listMount) {
+        this.#listMount.innerHTML = '';
+      }
       return;
     }
 
-    // 전체 UI 구조를 innerHTML로 설정합니다.
+    const listMarkup = this.#renderList(state);
+    if (this.#listMount) {
+      this.#listMount.innerHTML = listMarkup;
+    }
+
     this.#mount.innerHTML = `
-      <div class="tactics-panel fto-tactics-panel">
+      <div class="fto-tactics-panel">
         <button class="close-btn">×</button>
-        <div class="list-section">
-          <h3>Tactics</h3>
-          <ul>
-            ${tactics.map(t => `
-              <li class="tactic-item ${t.id === activeTactic?.id ? 'active' : ''}" data-id="${t.id}" data-label="${t.label}">
-                <span>${t.label}</span>
-                <button class="delete-btn" data-label="${t.label}">🗑️</button>
-              </li>
-            `).join('')}
-          </ul>
-          <button class="create-btn">+ New Tactic</button>
-        </div>
+        ${this.#listMount ? '' : listMarkup}
         <div class="details-section">
           ${isLoading ? '<div class="loader">Loading...</div>' : ''}
           ${activeTactic ? this.#renderDetails(activeTactic) : '<div class="placeholder">Select or create a tactic.</div>'}
@@ -306,185 +270,141 @@ export class TacticsSettingsRoot {
       </div>
     `;
 
-    // DOM이 생성된 후 이벤트 리스너와 하위 컴포넌트를 마운트합니다.
-    this.#attachEventListeners();
+    const listRoot = this.#listMount
+      ? this.#listMount.querySelector('[data-role="tactics-selector"]')
+      : this.#mount.querySelector('[data-role="tactics-selector"]');
+
+    this.#attachEventListeners(listRoot);
     this.#mountSubComponents(state);
   };
 
-  /** 전술 상세 편집 UI를 탭 구조로 렌더링합니다. */
-  #renderDetails = (tactic: Tactic): string => {
-    const tabContent = {
-      defense: `
-        <h4>Out of Possession (수비 시)</h4>
-        <div class="pitch-container" data-mode="out_of_possession"></div>
-        <label>Formation: <input type="text" name="out_of_possession.formation" value="${tactic.out_of_possession.formation}" /></label>
-      `,
-      offense: `
-        <h4>In Possession (공격 시)</h4>
-        <div class="pitch-container" data-mode="in_possession"></div>
-        <label>Formation: <input type="text" name="in_possession.formation" value="${tactic.in_possession.formation}" /></label>
-      `,
-      transition: `
-        <h4>Transition (공 뺏겼을 때)</h4>
-        <label>On Loss:
-          <select name="transition.on_loss">
-            <option value="fall_back" ${tactic.transition.on_loss === 'fall_back' ? 'selected' : ''}>대형 유지 (Fall Back)</option>
-            <option value="press_on_heavy_touch" ${tactic.transition.on_loss === 'press_on_heavy_touch' ? 'selected' : ''}>즉시 압박 (Press)</option>
-          </select>
-        </label>
-      `,
-    };
+  #renderList = ({ tactics, activeTactic }: TacticsState): string => {
+    const selectedLabel = activeTactic?.label ?? 'Select a tactic';
+    const safeSelectedLabel = this.#escapeHtml(selectedLabel);
+    const chevron = this.#isListOpen ? '▲' : '▼';
+    const items = tactics.length
+      ? tactics.map(t => {
+          const safeLabel = this.#escapeHtml(t.label);
+          const isActive = t.id === activeTactic?.id;
+          return `
+            <li class="tactic-item ${isActive ? 'active' : ''}" data-id="${t.id}">
+              <span title="${safeLabel}">${safeLabel}</span>
+              <button class="delete-btn" type="button" data-id="${t.id}" data-label="${safeLabel}">🗑️</button>
+            </li>
+          `;
+        }).join('')
+      : '<li class="tactic-item empty">No presets available</li>';
 
     return `
-      <h3><input type="text" name="label" value="${tactic.label}" class="tactic-label-input"/></h3>
-      <div class="tactic-details-tabs">
-        <div class="tab-nav">
-            <button class="tab-btn ${this.#activeDetailsTab === 'defense' ? 'active' : ''}" data-tab="defense">수비</button>
-            <button class="tab-btn ${this.#activeDetailsTab === 'offense' ? 'active' : ''}" data-tab="offense">공격</button>
-            <button class="tab-btn ${this.#activeDetailsTab === 'transition' ? 'active' : ''}" data-tab="transition">전환</button>
-        </div>
-        <div class="tab-content">
-            ${tabContent[this.#activeDetailsTab]}
+      <div class="fto-tactics-selector ${this.#isListOpen ? 'open' : ''}" data-role="tactics-selector">
+        <button class="selector-trigger" type="button">
+          <span class="selector-label">Preset</span>
+          <span class="selector-value" title="${safeSelectedLabel}">${safeSelectedLabel}</span>
+          <span class="selector-chevron">${chevron}</span>
+        </button>
+        <div class="selector-overlay">
+          <ul class="tactic-list">
+            ${items}
+          </ul>
+          <button class="create-btn" type="button">+ New Tactic</button>
         </div>
       </div>
-      <button class="save-btn">Save Changes</button>
     `;
+  };
+
+  #renderDetails = (tactic: Tactic): string => {
+    return `<div data-editor-mount></div>`;
   };
 
   #mountSubComponents = (state: TacticsState): void => {
     if (!state.activeTactic) return;
 
-    const pitchContainer = this.#mount.querySelector<HTMLElement>('.pitch-container');
-    if (pitchContainer) {
-      const mode = pitchContainer.dataset.mode as 'in_possession' | 'out_of_possession' | undefined;
-      if (mode) {
-        new PitchDisplay({
-          mount: pitchContainer,
-          tactic: state.activeTactic,
-          mode: mode,
-        });
-      }
+    const editorMount = this.#mount.querySelector<HTMLElement>('[data-editor-mount]');
+    if (editorMount) {
+      new TacticsEditor({
+        mount: editorMount,
+        store: this.#store,
+        tactic: state.activeTactic,
+      });
     }
   };
 
-  /** 생성된 DOM 요소에 이벤트 리스너를 연결합니다. */
-  #attachEventListeners = (): void => {
+  #attachEventListeners = (listRoot: ParentNode | null): void => {
     this.#mount.querySelector('.close-btn')?.addEventListener('click', this.#store.close);
-    this.#mount.querySelector('.create-btn')?.addEventListener('click', this.#handleCreate);
-    this.#mount.querySelector('.save-btn')?.addEventListener('click', this.#handleSave);
+    this.#bindListEventHandlers(listRoot);
+  };
 
-    this.#mount.querySelectorAll('.tactic-item').forEach(el => {
-      el.addEventListener('click', () => this.#store.selectTactic((el as HTMLElement).dataset.id!));
-    });
+  #bindListEventHandlers = (listRoot: ParentNode | null): void => {
+    if (!listRoot) return;
 
-    this.#mount.querySelectorAll('.delete-btn').forEach(el => {
-      el.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.#handleDelete((el as HTMLElement).dataset.label!);
+    listRoot.querySelector('.selector-trigger')?.addEventListener('click', this.#toggleList);
+
+    listRoot.querySelector('.create-btn')?.addEventListener('click', this.#handleCreate);
+
+    listRoot.querySelectorAll('.tactic-item').forEach(el => {
+      const id = (el as HTMLElement).dataset.id;
+      if (!id) return;
+      el.addEventListener('click', () => {
+        this.#store.selectTactic(id);
+        this.#setListOpen(false);
       });
     });
 
-    this.#mount.querySelectorAll('input, select').forEach(el => {
-      el.addEventListener('change', this.#handleInputChange);
-    });
-
-    this.#mount.querySelectorAll('.tab-btn').forEach(el => {
+    listRoot.querySelectorAll('.delete-btn').forEach(el => {
       el.addEventListener('click', (e) => {
-        const tab = (e.currentTarget as HTMLElement).dataset.tab;
-        if (tab === 'defense' || tab === 'offense' || tab === 'transition') {
-          this.#handleTabChange(tab);
-        }
+        e.stopPropagation();
+        this.#handleDelete((el as HTMLElement).dataset.id!, (el as HTMLElement).dataset.label!);
       });
     });
   };
 
   #handleCreate = () => {
-    const label = prompt('New tactic name:');
+    const label = prompt('New tactic name:')?.trim();
     if (label) {
-      const newTactic = createEmptyTactic(label);
-      // 에디터에서 즉시 편집할 수 있도록 활성 전술로 설정하지만 아직 저장하지 않습니다.
-      this.#store.setActiveTactic(newTactic);
+      this.#store.createTactic(label);
+      this.#setListOpen(false);
     }
   };
 
-  #handleSave = async () => {
-    const tacticToSave = this.#store.snapshot.activeTactic;
-    if (!tacticToSave) {
-      alert('No active tactic to save.');
-      return;
-    }
-
-    try {
-      const response = await fetch('/api/save-preset', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(tacticToSave),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Failed to save preset: ${errorText}`);
-      }
-
-      // Reload tactics from source to reflect the change
-      await this.#store.loadTactics();
-      alert(`Tactic '${tacticToSave.label}' saved successfully!`);
-    } catch (error) {
-      console.error('Error saving tactic:', error);
-      alert(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  #handleDelete = (id: string, label: string) => {
+    if (confirm(`Are you sure you want to delete '${label}'?`)) {
+      this.#store.deleteTactic(id);
     }
   };
 
-  #handleDelete = async (label: string) => {
-    if (!label || !confirm(`Are you sure you want to delete the '${label}' preset?`)) {
-      return;
+  #toggleList = (event: Event): void => {
+    event.preventDefault();
+    event.stopPropagation();
+    this.#setListOpen(!this.#isListOpen);
+  };
+
+  #setListOpen = (open: boolean): void => {
+    if (this.#isListOpen === open) return;
+    this.#isListOpen = open;
+    if (open) {
+      this.#doc.addEventListener('click', this.#handleDocumentClick);
+    } else {
+      this.#doc.removeEventListener('click', this.#handleDocumentClick);
     }
+    this.render(this.#store.snapshot);
+  };
 
-    try {
-      const response = await fetch('/api/delete-preset', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ label }),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Failed to delete preset: ${errorText}`);
-      }
-
-      await this.#store.loadTactics();
-    } catch (error) {
-      console.error('Error deleting tactic:', error);
-      alert(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  #handleDocumentClick = (event: MouseEvent): void => {
+    if (!this.#isListOpen) return;
+    const container = this.#listMount ?? this.#mount;
+    const selector = container.querySelector('[data-role="tactics-selector"]');
+    if (!selector) return;
+    if (!selector.contains(event.target as Node)) {
+      this.#setListOpen(false);
     }
   };
 
-  #handleTabChange = (tab: 'defense' | 'offense' | 'transition') => {
-    this.#activeDetailsTab = tab;
-    this.render(this.#store.snapshot); // 새 탭을 활성화하여 다시 렌더링
-  };
-
-  /** 입력 필드 변경 시 스토어의 상태를 업데이트합니다. */
-  #handleInputChange = (e: Event) => {
-    const target = e.target as HTMLInputElement | HTMLSelectElement;
-    const path = target.name;
-    const value = target.value;
-
-    const activeTactic = this.#store.snapshot.activeTactic;
-    if (!activeTactic) return;
-
-    // 상태 불변성을 위해 깊은 복사를 합니다.
-    const newTactic = JSON.parse(JSON.stringify(activeTactic));
-
-    // 'a.b' 같은 경로를 해석하여 값을 설정합니다.
-    let current = newTactic;
-    const keys = path.split('.');
-    for (let i = 0; i < keys.length - 1; i++) {
-      current = current[keys[i]];
-    }
-    current[keys[keys.length - 1]] = value;
-
-    // 전체 Tactic 객체를 스토어에 업데이트합니다.
-    this.#store.updateActiveTactic(newTactic);
+  #escapeHtml = (value: string): string => {
+    return value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   };
 }

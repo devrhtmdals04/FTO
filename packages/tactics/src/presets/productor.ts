@@ -8,7 +8,7 @@ export const PRESET_TACTICS: Record<string, Tactic> = {};
 // Iterate over the modules and build the PRESET_TACTICS object.
 for (const path in modules) {
   // Exclude this index.ts file itself
-  if (path === './index.ts') continue;
+  if (path === './productor.ts') continue;
 
   const tactic = modules[path] as Tactic;
   if (tactic && tactic.label) {

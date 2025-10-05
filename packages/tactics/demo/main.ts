@@ -1,4 +1,4 @@
-import { TacticsSettingsRoot, TacticsStore, Tactic, EngineBridge, TacticSummary, PRESET_TACTICS } from '../src/index';
+import { TacticsSettingsRoot, TacticsStore, Tactic, EngineBridge, TacticSummary, PRESET_TACTICS, PitchDisplay } from '../src/index';
 
 // --- Mock Engine Bridge ---
 // This simulates the communication with the Rust engine for the standalone demo.
@@ -88,8 +88,8 @@ const mockBridge: EngineBridge = {
     return Object.values(tactics).map(t => ({
       id: t.id,
       label: t.label,
-      in_possession_formation: t.in_possession.formation,
-      out_of_possession_formation: t.out_of_possession.formation,
+      in_possession_formation: t.Attacking.formation,
+      out_of_possession_formation: t.Deffending.formation,
     }));
   },
   loadTactic: async (id: string): Promise<Tactic | null> => {
@@ -110,26 +110,43 @@ const mockBridge: EngineBridge = {
 
 
 // --- App Initialization ---
-const mountPoint = document.getElementById('tactics-root');
+const leftPanelMount = document.getElementById('left-panel-container');
+const presetListMount = document.getElementById('preset-selection-container');
+const pitchPanelMount = document.getElementById('pitch-container');
+const rightPanelMount = document.getElementById('right-panel-container');
 
-if (mountPoint) {
+if (leftPanelMount && presetListMount && pitchPanelMount && rightPanelMount) {
   // 1. Create the store with the mock bridge
   const store = new TacticsStore(mockBridge);
 
-  // 2. Create the UI component
+  // 2. Mount the editor panel on the right
   new TacticsSettingsRoot({
-    mount: mountPoint,
+    mount: rightPanelMount,
     store: store,
+    listMount: presetListMount,
   });
 
-  // 3. Open the panel by default for the demo
-  store.open();
-  
-  // 4. If no tactic is active, select the first one
-  if (!store.snapshot.activeTactic && store.snapshot.tactics.length > 0) {
-      store.selectTactic(store.snapshot.tactics[0].id);
-  }
+  // 3. Mount and manage the main pitch display in the center
+  let mainPitch: PitchDisplay | null = null;
+  store.subscribe(state => {
+    if (state.activeTactic) {
+      mainPitch = new PitchDisplay({
+        mount: pitchPanelMount,
+        tactic: state.activeTactic,
+        mode: state.displayMode,
+      });
+    } else {
+      pitchPanelMount.innerHTML = '<p>Select a tactic to see the pitch display.</p>';
+      mainPitch = null;
+    }
+  });
+
+  // 4. Mount a placeholder for the left panel
+  leftPanelMount.innerHTML = '<h2>Roster & Team Style (Placeholder)</h2>';
+
+  // 5. Open the panel and load initial data
+  store.openAndEnsureTactic();
 
 } else {
-  console.error('Mount point #tactics-root not found.');
+  console.error('One or more mount points not found.');
 }

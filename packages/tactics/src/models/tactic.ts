@@ -43,8 +43,8 @@ export interface TransitionTactic {
 export interface Tactic {
   readonly id: string;
   label: string;
-  in_possession: InPossessionTactic;
-  out_of_possession: OutOfPossessionTactic;
+  Attacking: InPossessionTactic;
+  Deffending: OutOfPossessionTactic;
   transition: TransitionTactic;
 }
 
@@ -58,11 +58,11 @@ const makeId = () => `tactic-${Math.random().toString(36).slice(2, 10)}`;
 export const createEmptyTactic = (label = "New Tactic"): Tactic => ({
   id: makeId(),
   label,
-  in_possession: {
+  Attacking: {
     formation: '4-4-2',
     style: 'default',
   },
-  out_of_possession: {
+  Deffending: {
     formation: '4-4-2',
     style: 'default',
   },

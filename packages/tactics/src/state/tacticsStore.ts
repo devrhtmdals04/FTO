@@ -1,6 +1,6 @@
 import type { EngineBridge, TacticSummary } from '../api/types';
 import { Tactic, createEmptyTactic } from '../models/tactic';
-import { PRESET_TACTICS } from '../presets';
+import { PRESET_TACTICS } from '../presets/productor';
 
 /**
  * 스토어의 상태를 정의하는 인터페이스
@@ -10,6 +10,8 @@ export interface TacticsState {
   readonly activeTactic: Tactic | null; // 현재 활성화/편집 중인 전술의 전체 데이터
   readonly isLoading: boolean; // 데이터 로딩 중 상태
   readonly isOpen: boolean; // UI 패널 열림 상태
+  readonly displayMode: 'Attacking' | 'Deffending'; // 현재 표시 모드
+  readonly editorTab: 'Attacking' | 'Deffending' | 'transition'; // 에디터에서 선택된 탭
 }
 
 export type TacticsStoreListener = (state: TacticsState) => void;
@@ -19,6 +21,8 @@ const initialState: TacticsState = {
   activeTactic: null,
   isLoading: false,
   isOpen: false,
+  displayMode: 'Attacking',
+  editorTab: 'Attacking',
 };
 
 /**
@@ -49,6 +53,17 @@ export class TacticsStore {
   open = () => this.#update({ isOpen: true });
   close = () => this.#update({ isOpen: false });
   toggle = () => this.#update({ isOpen: !this.#state.isOpen });
+  setDisplayMode = (mode: 'Attacking' | 'Deffending'): void => {
+    this.#update({ displayMode: mode, editorTab: mode });
+  };
+
+  setEditorTab = (tab: 'Attacking' | 'Deffending' | 'transition'): void => {
+    if (tab === 'Attacking' || tab === 'Deffending') {
+      this.setDisplayMode(tab);
+      return;
+    }
+    this.#update({ editorTab: tab });
+  };
 
   /**
    * 패널을 열고, 활성화된 전술이 없으면 첫번째 또는 새 전술을 활성화합니다.
@@ -216,8 +231,8 @@ export class TacticsStore {
     return {
       id: tactic.id,
       label: tactic.label,
-      in_possession_formation: tactic.in_possession.formation,
-      out_of_possession_formation: tactic.out_of_possession.formation,
+      in_possession_formation: tactic.Attacking.formation,
+      out_of_possession_formation: tactic.Deffending.formation,
     };
   }
 

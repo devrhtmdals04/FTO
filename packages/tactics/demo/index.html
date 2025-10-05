@@ -5,22 +5,76 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>FTO Tactics Editor</title>
     <style>
-      body {
+      html, body {
+        height: 100%;
+        margin: 0;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
         background-color: #1e1e1e;
         color: #f5f5f5;
-        margin: 0;
-        padding: 24px;
+        overflow: hidden;
       }
-      h1 {
-        font-weight: 600;
+      #app-container {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        align-items: stretch;
+        gap: 24px;
+        height: 100%;
+        width: 100%;
+        padding: 24px;
+        box-sizing: border-box;
+      }
+      #left-panel-container,
+      #right-panel-container {
+        height: 100%;
+        padding: 20px;
+        background-color: #2a2a2a;
+        overflow-y: auto;
+        box-sizing: border-box;
+        border-radius: 12px;
+        min-height: 0;
+      }
+      #center-panel-container {
+        display: flex;
+        flex-direction: column;
+        background-color: #111;
+        border-radius: 12px;
+        padding: 12px;
+        min-height: 0;
+        height: 100%;
+        overflow: visible;
+        gap: 16px;
+        box-sizing: border-box;
+      }
+      #preset-selection-container {
+        flex: 0 0 auto;
+        padding: 0;
+        overflow: visible;
+      }
+      #pitch-container {
+        flex: 1 1 auto;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+      }
+      #pitch-container svg {
+        display: block; /* Prevents extra space below */
+        width: 100%;
+        height: auto;
+        max-height: 100%;
+        border-radius: 12px;
       }
     </style>
   </head>
   <body>
-    <h1>FTO Tactics Editor Demo</h1>
-    <p>The tactics editor panel should be visible below.</p>
-    <div id="tactics-root"></div>
+    <div id="app-container">
+      <div id="left-panel-container"></div>
+      <div id="center-panel-container">
+        <div id="preset-selection-container"></div>
+        <div id="pitch-container"></div>
+      </div>
+      <div id="right-panel-container"></div>
+    </div>
     <script type="module" src="/packages/tactics/demo/main.ts"></script>
   </body>
 </html>
