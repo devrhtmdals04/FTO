@@ -1,4 +1,5 @@
 import { TacticsSettingsRoot, TacticsStore, Tactic, EngineBridge, TacticSummary, PRESET_TACTICS, PitchDisplay } from '../src/index';
+import { SquadDisplay } from '../../squad/src/components/SquadDisplay';
 
 // --- Mock Engine Bridge ---
 // This simulates the communication with the Rust engine for the standalone demo.
@@ -141,11 +142,25 @@ if (leftPanelMount && presetListMount && pitchPanelMount && rightPanelMount) {
     }
   });
 
-  // 4. Mount a placeholder for the left panel
-  leftPanelMount.innerHTML = '<h2>Roster & Team Style (Placeholder)</h2>';
+  // 4. Mount the squad display on the left
+  new SquadDisplay({ mount: leftPanelMount });
 
   // 5. Open the panel and load initial data
   store.openAndEnsureTactic();
+
+  // 6. Setup Drag and Drop
+  pitchPanelMount.addEventListener('dragover', (event) => {
+    event.preventDefault();
+  });
+
+  pitchPanelMount.addEventListener('drop', (event) => {
+    event.preventDefault();
+    const playerData = event.dataTransfer?.getData('application/json');
+    if (!playerData || !mainPitch) return;
+
+    const player = JSON.parse(playerData);
+    mainPitch.dropPlayer(player, event.clientX, event.clientY);
+  });
 
 } else {
   console.error('One or more mount points not found.');
