@@ -1,7 +1,9 @@
 import type { Tactic } from '../models/tactic';
+import { getFormationSlots, type FormationSlot, FormationRole } from '../presets/formationPresets';
 import { createPlayerMarker } from '../models/marker';
 import { createProfileOverlay } from '../../../squad/src/components/profile/ProfileOverlay';
-import type { Player, PlayerProfile, Position } from '../../../squad/src/index';
+import type { Player, PlayerProfile } from '../../../squad/src/index';
+import type { TacticsStore } from '../state/tacticsStore';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -14,10 +16,28 @@ const STRIPE_COLOR = 'rgba(0, 0, 0, 0.08)';
 const LINE_COLOR = 'rgba(255, 255, 255, 0.7)';
 const LINE_WIDTH = '1';
 
-function convertProfileToPlayer(profile: PlayerProfile, id: number): Player {
+const SLOT_BASE_RADIUS = 12;
+const SLOT_HIGHLIGHT_FILL = 'rgba(255, 255, 255, 0.24)';
+const SLOT_OCCUPIED_FILL = 'rgba(255, 255, 255, 0.28)';
+const SLOT_EMPTY_FILL = 'rgba(255, 255, 255, 0.12)';
+const SLOT_HIGHLIGHT_STROKE = '#ffffff';
+const SLOT_HOVER_DISTANCE = 80; // px within pitch coordinate space
+
+const ROLE_COLORS: Record<FormationRole, string> = {
+  GK: '#f2c94c',
+  DF: '#56ccf2',
+  MF: '#27ae60',
+  FW: '#eb5757',
+};
+
+type DraggedProfile = PlayerProfile & { jerseyNumber?: number };
+type SlotOccupant = DraggedProfile & { id: number };
+
+function convertProfileToPlayer(profile: SlotOccupant): Player {
+  const jerseyNumber = profile.jerseyNumber ?? profile.number ?? profile.id;
   return {
-    id,
-    number: profile.number || id,
+    id: profile.id,
+    number: jerseyNumber,
     name: profile.name,
     position: profile.position,
     stats: {
@@ -34,18 +54,47 @@ function convertProfileToPlayer(profile: PlayerProfile, id: number): Player {
 export interface PitchDisplayOptions {
   mount: HTMLElement;
   tactic: Tactic;
+  squad: PlayerProfile[];
+  store: TacticsStore;
   mode: 'Attacking' | 'Deffending';
+}
+
+interface SlotState {
+  readonly index: number;
+  x: number; // normalized 0..1 across pitch width
+  y: number; // normalized 0..1 across pitch height
+  role: FormationRole;
+  occupant: SlotOccupant | null;
+  element?: SVGPolygonElement;
 }
 
 export class PitchDisplay {
   readonly #options: PitchDisplayOptions;
-  #players: (PlayerProfile & { x: number; y: number; id: number })[] = [];
-  #svg: SVGSVGElement;
+  readonly #svg: SVGSVGElement;
+  #slots: SlotState[];
+  #nextPlayerId = 1;
+  #highlightedSlotIndex: number | null = null;
+  #draggedSlot: { slot: SlotState, startX: number, startY: number, isDragging: boolean, startTime: number } | null = null;
+  #roleSelectionMenu: HTMLDivElement | null = null;
 
   constructor(options: PitchDisplayOptions) {
     this.#options = options;
+    this.#slots = this.#createSlots();
     this.#svg = this.createSvgElement();
+    this.#svg.addEventListener('dragover', this.#handleDragOver);
+    this.#svg.addEventListener('dragleave', this.#handleDragLeave);
+    this.#svg.addEventListener('drop', this.#handleDrop);
+    window.addEventListener('mousedown', (e) => {
+      if (this.#roleSelectionMenu && !this.#roleSelectionMenu.contains(e.target as Node)) {
+        this.#removeRoleSelectionMenu();
+      }
+    });
     this.render();
+  }
+
+  #createSlots(): SlotState[] {
+    const phaseFormation = this.#options.tactic[this.#options.mode].formation;
+    return getFormationSlots(phaseFormation).map(slot => ({ ...slot, occupant: null }));
   }
 
   private createSvgElement(): SVGSVGElement {
@@ -56,24 +105,346 @@ export class PitchDisplay {
     return svg;
   }
 
-  public dropPlayer(profile: PlayerProfile, clientX: number, clientY: number): void {
+  #updateOccupiedPlayers = (): void => {
+    const names = this.#slots.map(s => s.occupant?.name).filter(Boolean) as string[];
+    this.#options.store.setOccupiedPlayerNames(names);
+  }
+
+  public autoAssignPlayers(): void {
+    const playersToAssign = [...this.#options.squad];
+    const assignedPlayerNames = new Set<string>();
+
+    const existingOccupants = new Map<string, SlotOccupant>();
+    for (const slot of this.#slots) {
+      if (slot.occupant) {
+        existingOccupants.set(slot.occupant.name, slot.occupant);
+      }
+      slot.occupant = null;
+    }
+
+    for (const slot of this.#slots) {
+      const playerIndex = playersToAssign.findIndex(p => 
+          !assignedPlayerNames.has(p.name) && p.position === slot.role
+      );
+
+      if (playerIndex !== -1) {
+        const profile = playersToAssign[playerIndex];
+        assignedPlayerNames.add(profile.name);
+
+        let occupant = existingOccupants.get(profile.name);
+        if (!occupant) {
+          const newId = this.#nextPlayerId++;
+          occupant = { 
+              ...profile, 
+              id: newId,
+              jerseyNumber: profile.number,
+              number: profile.number,
+          };
+        }
+        slot.occupant = occupant;
+      }
+    }
+
+    this.render();
+  }
+
+  public dropPlayer(profile: DraggedProfile, clientX: number, clientY: number): void {
+    const coords = this.#toPitchCoordinates(clientX, clientY);
+    if (!coords) return;
+
+    const { x, y } = coords;
+    let targetSlot = this.#highlightedSlotIndex !== null ? this.#getSlotByIndex(this.#highlightedSlotIndex) : null;
+    if (!targetSlot) {
+      targetSlot = this.#findClosestSlot(x, y, { preferVacant: true })?.slot
+        ?? this.#findClosestSlot(x, y)?.slot
+        ?? null;
+    }
+
+    if (!targetSlot) return;
+
+    const distanceToTarget = this.#distanceToSlot(targetSlot, x, y);
+    if (distanceToTarget > SLOT_HOVER_DISTANCE) {
+      this.#setHighlightedSlot(null);
+      return;
+    }
+
+    const existingSlot = this.#slots.find(slot => slot.occupant?.name === profile.name);
+    if (existingSlot && existingSlot === targetSlot) {
+      this.#setHighlightedSlot(null);
+      return;
+    }
+
+    const displaced = targetSlot.occupant ?? null;
+    const existingId = existingSlot?.occupant?.id ?? null;
+    const existingJersey = existingSlot?.occupant?.jerseyNumber ?? existingSlot?.occupant?.number;
+    const incomingJersey = profile.jerseyNumber ?? profile.number ?? existingJersey;
+
+    if (existingSlot && existingSlot !== targetSlot) {
+      existingSlot.occupant = null;
+      this.#applySlotStyles(existingSlot);
+    }
+
+    const assignedId = existingId ?? this.#nextPlayerId++;
+    const occupant: SlotOccupant = { ...profile, id: assignedId, jerseyNumber: incomingJersey };
+    if (incomingJersey !== undefined) {
+      occupant.number = incomingJersey;
+    }
+    targetSlot.occupant = occupant;
+
+    if (displaced && displaced.name !== profile.name) {
+      if (existingSlot && existingSlot !== targetSlot) {
+        existingSlot.occupant = displaced;
+        this.#applySlotStyles(existingSlot);
+      } else {
+        this.#assignDisplacedPlayer(displaced, targetSlot.index);
+      }
+    }
+
+    this.#setHighlightedSlot(null);
+    this.render();
+  }
+
+  #toPitchCoordinates(clientX: number, clientY: number): { x: number; y: number } | null {
     const svgRect = this.#svg.getBoundingClientRect();
-    const svgX = clientX - svgRect.left;
-    const svgY = clientY - svgRect.top;
+    const width = svgRect.width;
+    const height = svgRect.height;
+    if (width === 0 || height === 0) return null;
 
-    const pt = this.#svg.createSVGPoint();
-    pt.x = svgX;
-    pt.y = svgY;
-    const svgP = pt.matrixTransform(this.#svg.getScreenCTM()!.inverse());
+    const scaleX = (PITCH_WIDTH + MARGIN * 2) / width;
+    const scaleY = (PITCH_HEIGHT + MARGIN * 2) / height;
 
-    const dropX = svgP.x - MARGIN;
-    const dropY = svgP.y - MARGIN;
+    const x = (clientX - svgRect.left) * scaleX - MARGIN;
+    const y = (clientY - svgRect.top) * scaleY - MARGIN;
+    return { x, y };
+  }
 
-    const alreadyInLineup = this.#players.some(p => p.name === profile.name); // Use name to check for duplicates
-    if (!alreadyInLineup) {
-      this.#players.push({ ...profile, x: dropX, y: dropY, id: this.#players.length + 1 });
+  #findClosestSlot(
+    x: number,
+    y: number,
+    options: { preferVacant?: boolean } = {}
+  ): { slot: SlotState; distance: number } | null {
+    let best: { slot: SlotState; distance: number } | null = null;
+    const preferVacant = options.preferVacant ?? false;
+
+    for (const slot of this.#slots) {
+      const distance = this.#distanceToSlot(slot, x, y);
+      const penalty = preferVacant && slot.occupant ? 60 : 0;
+      const effective = distance + penalty;
+
+      if (!best || effective < best.distance) {
+        best = { slot, distance: effective };
+      }
+    }
+
+    if (!best) return null;
+    return { slot: best.slot, distance: this.#distanceToSlot(best.slot, x, y) };
+  }
+
+  #distanceToSlot(slot: SlotState, x: number, y: number): number {
+    const slotX = slot.x * PITCH_WIDTH;
+    const slotY = slot.y * PITCH_HEIGHT;
+    return Math.hypot(slotX - x, slotY - y);
+  }
+
+  #slotRadius(slot: SlotState): number {
+    return SLOT_BASE_RADIUS;
+  }
+
+  #createHexagonPoints(cx: number, cy: number, radius: number): string {
+    const points: string[] = [];
+    for (let i = 0; i < 6; i += 1) {
+      const angle = (Math.PI / 3) * i - Math.PI / 2;
+      const px = cx + radius * Math.cos(angle);
+      const py = cy + radius * Math.sin(angle);
+      points.push(`${px},${py}`);
+    }
+    return points.join(' ');
+  }
+
+  #getSlotByIndex(index: number): SlotState | null {
+    return this.#slots.find(slot => slot.index === index) ?? null;
+  }
+
+  #setHighlightedSlot(slot: SlotState | null): void {
+    const previous = this.#highlightedSlotIndex !== null ? this.#getSlotByIndex(this.#highlightedSlotIndex) : null;
+    const nextIndex = slot?.index ?? null;
+    if (this.#highlightedSlotIndex === nextIndex) return;
+
+    this.#highlightedSlotIndex = nextIndex;
+    if (previous) this.#applySlotStyles(previous);
+    if (slot) this.#applySlotStyles(slot);
+  }
+
+  #applySlotStyles(slot: SlotState): void {
+    const element = slot.element;
+    if (!element) return;
+
+    const isHighlighted = this.#highlightedSlotIndex === slot.index;
+    const roleColor = ROLE_COLORS[slot.role];
+    const baseStroke = roleColor;
+    const baseFill = slot.occupant ? SLOT_OCCUPIED_FILL : SLOT_EMPTY_FILL;
+    const fill = isHighlighted
+      ? (slot.occupant ? 'rgba(255, 255, 255, 0.36)' : SLOT_HIGHLIGHT_FILL)
+      : baseFill;
+    const stroke = isHighlighted ? SLOT_HIGHLIGHT_STROKE : baseStroke;
+
+    element.setAttribute('fill', fill);
+    element.setAttribute('stroke', stroke);
+    element.setAttribute('stroke-width', '1.9');
+  }
+
+  #handleDragOver = (event: DragEvent): void => {
+    event.preventDefault();
+    const coords = this.#toPitchCoordinates(event.clientX, event.clientY);
+    if (!coords) return;
+
+    const { x, y } = coords;
+    const candidate = this.#findClosestSlot(x, y, { preferVacant: true })
+      ?? this.#findClosestSlot(x, y);
+    if (!candidate || candidate.distance > SLOT_HOVER_DISTANCE) {
+      this.#setHighlightedSlot(null);
+      return;
+    }
+
+    this.#setHighlightedSlot(candidate.slot);
+  };
+
+  #handleDragLeave = (event: DragEvent): void => {
+    const related = event.relatedTarget as Node | null;
+    if (related && (related === this.#svg || this.#svg.contains(related))) {
+      return;
+    }
+    this.#setHighlightedSlot(null);
+  };
+
+  #handleDrop = (event: DragEvent): void => {
+    event.preventDefault();
+    this.#setHighlightedSlot(null);
+  };
+
+  #assignDisplacedPlayer(player: SlotOccupant, ignoreIndex: number): void {
+    const fallback = this.#slots.find(slot => slot.index !== ignoreIndex && !slot.occupant);
+    if (fallback) {
+      fallback.occupant = player;
+      this.#applySlotStyles(fallback);
+    }
+  }
+
+  #handleSlotMouseDown = (event: MouseEvent, slot: SlotState): void => {
+    if (event.button !== 0) return; // Only handle left-clicks
+    event.preventDefault();
+    const coords = this.#toPitchCoordinates(event.clientX, event.clientY);
+    if (!coords) return;
+
+    this.#draggedSlot = {
+      slot,
+      startX: coords.x,
+      startY: coords.y,
+      isDragging: false,
+      startTime: Date.now(),
+    };
+
+    window.addEventListener('mousemove', this.#handleSlotMouseMove);
+    window.addEventListener('mouseup', this.#handleSlotMouseUp);
+  }
+
+  #handleSlotMouseMove = (event: MouseEvent): void => {
+    if (!this.#draggedSlot) return;
+    event.preventDefault();
+
+    if (!this.#draggedSlot.isDragging) {
+      const dist = Math.hypot(event.clientX - this.#draggedSlot.startX, event.clientY - this.#draggedSlot.startY);
+      if (dist > 5) { // Start dragging after 5px movement
+        this.#draggedSlot.isDragging = true;
+      }
+    }
+
+    if (this.#draggedSlot.isDragging) {
+      const coords = this.#toPitchCoordinates(event.clientX, event.clientY);
+      if (!coords) return;
+
+      const { slot } = this.#draggedSlot;
+
+      const newX = Math.max(0, Math.min(PITCH_WIDTH, coords.x));
+      const newY = Math.max(0, Math.min(PITCH_HEIGHT, coords.y));
+
+      slot.x = newX / PITCH_WIDTH;
+      slot.y = newY / PITCH_HEIGHT;
+
       this.render();
     }
+  }
+
+  #handleSlotMouseUp = (event: MouseEvent): void => {
+    if (!this.#draggedSlot) return;
+    event.preventDefault();
+
+    const wasDragging = this.#draggedSlot.isDragging;
+    const duration = Date.now() - this.#draggedSlot.startTime;
+
+    if (!wasDragging && duration < 200) {
+      this.#handleSlotClick(this.#draggedSlot.slot);
+    }
+
+    this.#draggedSlot = null;
+    window.removeEventListener('mousemove', this.#handleSlotMouseMove);
+    window.removeEventListener('mouseup', this.#handleSlotMouseUp);
+  }
+
+  #handleSlotClick = (slot: SlotState): void => {
+    if (slot.occupant) return;
+
+    this.#removeRoleSelectionMenu();
+
+    const menu = document.createElement('div');
+    menu.className = 'role-selection-menu';
+    const slotRect = slot.element!.getBoundingClientRect();
+    menu.style.position = 'absolute';
+    menu.style.left = `${slotRect.right + 5}px`;
+    menu.style.top = `${slotRect.top}px`;
+    menu.style.backgroundColor = '#2a2a2a';
+    menu.style.border = '1px solid #444';
+    menu.style.borderRadius = '4px';
+    menu.style.padding = '4px';
+    menu.style.display = 'flex';
+    menu.style.flexDirection = 'column';
+    menu.style.gap = '4px';
+    menu.style.zIndex = '100';
+
+    const roles: FormationRole[] = ['GK', 'DF', 'MF', 'FW'];
+    roles.forEach(role => {
+      const button = document.createElement('button');
+      button.textContent = role;
+      button.style.backgroundColor = '#3a3a3a';
+      button.style.color = 'white';
+      button.style.border = '1px solid #555';
+      button.style.borderRadius = '3px';
+      button.style.cursor = 'pointer';
+      button.onclick = () => {
+        slot.role = role;
+        this.#removeRoleSelectionMenu();
+        this.render();
+      };
+      menu.appendChild(button);
+    });
+
+    document.body.appendChild(menu);
+    this.#roleSelectionMenu = menu;
+  }
+
+  #removeRoleSelectionMenu = (): void => {
+    if (this.#roleSelectionMenu) {
+      this.#roleSelectionMenu.remove();
+      this.#roleSelectionMenu = null;
+    }
+  }
+
+  public getFormation(): { role: string, x: number, y: number }[] {
+    return this.#slots.map(slot => ({
+      role: slot.role,
+      x: slot.x,
+      y: slot.y,
+    }));
   }
 
   private drawPitch(): void {
@@ -192,24 +563,68 @@ export class PitchDisplay {
     group.setAttribute('transform', `translate(${MARGIN}, ${MARGIN})`);
     this.#svg.appendChild(group);
 
-    this.#players.forEach(profile => {
-      const player = convertProfileToPlayer(profile, profile.id);
-      this.drawPlayer(group, player, profile, profile.x, profile.y);
+    this.#slots.forEach(slot => {
+      if (!slot.occupant) return;
+      const profile = slot.occupant;
+      const player = convertProfileToPlayer(profile);
+      const cx = slot.x * PITCH_WIDTH;
+      const cy = slot.y * PITCH_HEIGHT;
+      this.drawPlayer(group, player, profile, cx, cy, slot);
     });
   }
 
-  private drawPlayer(svgGroup: SVGGElement, player: Player, profile: PlayerProfile, cx: number, cy: number): void {
+  private drawSlots(): void {
+    const group = document.createElementNS(SVG_NS, 'g');
+    group.setAttribute('transform', `translate(${MARGIN}, ${MARGIN})`);
+    this.#svg.appendChild(group);
+
+    this.#slots.forEach(slot => {
+      const radius = this.#slotRadius(slot);
+      const cx = slot.x * PITCH_WIDTH;
+      const cy = slot.y * PITCH_HEIGHT;
+      const polygon = document.createElementNS(SVG_NS, 'polygon');
+      polygon.setAttribute('points', this.#createHexagonPoints(cx, cy, radius));
+      polygon.setAttribute('stroke-linejoin', 'round');
+      polygon.setAttribute('pointer-events', 'all');
+      polygon.style.cursor = 'grab';
+      slot.element = polygon;
+      group.appendChild(polygon);
+      this.#applySlotStyles(slot);
+
+      const text = document.createElementNS(SVG_NS, 'text');
+      text.setAttribute('x', cx.toString());
+      text.setAttribute('y', (cy + radius + 10).toString());
+      text.setAttribute('text-anchor', 'middle');
+      text.setAttribute('font-size', '7');
+      text.setAttribute('fill', 'rgba(255, 255, 255, 0.7)');
+      text.textContent = slot.role;
+      group.appendChild(text);
+
+      polygon.addEventListener('mousedown', (e) => this.#handleSlotMouseDown(e, slot));
+    });
+  }
+
+  private drawPlayer(
+    svgGroup: SVGGElement,
+    player: Player,
+    profile: SlotOccupant,
+    cx: number,
+    cy: number,
+    slot: SlotState,
+  ): void {
     const markerSize = 40;
     const wrapper = document.createElementNS('http://www.w3.org/1999/xhtml', 'div');
     wrapper.style.width = `${markerSize}px`;
     wrapper.style.height = `${markerSize}px`;
     wrapper.style.transform = `scale(${markerSize / 80})`;
     wrapper.style.transformOrigin = 'top left';
+    wrapper.draggable = true;
 
     const markerElement = createPlayerMarker(player);
     markerElement.style.position = 'static';
     markerElement.style.left = '';
     markerElement.style.top = '';
+    markerElement.draggable = false;
     
     wrapper.appendChild(markerElement);
 
@@ -220,20 +635,57 @@ export class PitchDisplay {
     foreignObject.setAttribute('height', markerSize.toString());
     foreignObject.style.cursor = 'pointer';
 
+    const onDragStart = (event: DragEvent) => {
+      if (!event.dataTransfer) return;
+      const { id: _ignored, ...rest } = profile;
+      const payload = rest as DraggedProfile;
+      event.dataTransfer.setData('application/json', JSON.stringify(payload));
+      event.dataTransfer.setData('text/plain', profile.name);
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('application/x-fto-source', JSON.stringify({ source: 'pitch', slotIndex: slot.index }));
+      event.dataTransfer.setDragImage(wrapper, markerSize / 2, markerSize / 2);
+      this.#setHighlightedSlot(slot);
+    };
+
+    const onDragEnd = () => {
+      this.#setHighlightedSlot(null);
+    };
+
+    wrapper.addEventListener('dragstart', onDragStart);
+    wrapper.addEventListener('dragend', onDragEnd);
+
     foreignObject.addEventListener('click', () => {
       const overlay = createProfileOverlay(profile);
       document.body.appendChild(overlay);
     });
-    
+
+    foreignObject.addEventListener('contextmenu', (event) => {
+      event.preventDefault();
+      slot.occupant = null;
+      this.render();
+    });
+
     foreignObject.appendChild(wrapper);
     svgGroup.appendChild(foreignObject);
+
+    const text = document.createElementNS(SVG_NS, 'text');
+    text.setAttribute('x', cx.toString());
+    text.setAttribute('y', (cy - (markerSize / 2) - 5).toString());
+    text.setAttribute('text-anchor', 'middle');
+    text.setAttribute('font-size', '7');
+    text.setAttribute('fill', 'rgba(255, 255, 255, 0.9)');
+    text.textContent = player.name;
+    svgGroup.appendChild(text);
   }
 
   public render(): void {
     this.#options.mount.innerHTML = '';
     this.#svg.innerHTML = '';
+    this.#removeRoleSelectionMenu();
     this.drawPitch();
+    this.drawSlots();
     this.drawPlayers();
     this.#options.mount.appendChild(this.#svg);
+    this.#updateOccupiedPlayers();
   }
 }

@@ -4,6 +4,7 @@ export const SQUAD_A: PlayerProfile[] = [
     // Alisson Becker
     {
         name: "Alisson Becker",
+        number: 1,
         position: 'GK',
         pace: 9,
         accel: 9,
@@ -27,6 +28,7 @@ export const SQUAD_A: PlayerProfile[] = [
     // Kyle Walker
     {
         name: "Kyle Walker",
+        number: 2,
         position: 'DF',
         pace: 18,
         accel: 18,
@@ -50,6 +52,7 @@ export const SQUAD_A: PlayerProfile[] = [
     // Rúben Dias
     {
         name: "Rúben Dias",
+        number: 3,
         position: 'DF',
         pace: 12,
         accel: 11,
@@ -73,6 +76,7 @@ export const SQUAD_A: PlayerProfile[] = [
     // Kim Min-jae
     {
         name: "Kim Min-jae",
+        number: 4,
         position: 'DF',
         pace: 13,
         accel: 12,
@@ -96,6 +100,7 @@ export const SQUAD_A: PlayerProfile[] = [
     // Alphonso Davies
     {
         name: "Alphonso Davies",
+        number: 19,
         position: 'DF',
         pace: 19,
         accel: 19,
@@ -119,6 +124,7 @@ export const SQUAD_A: PlayerProfile[] = [
     // Rodri
     {
         name: "Rodri",
+        number: 16,
         position: 'MF',
         pace: 10,
         accel: 10,
@@ -142,6 +148,7 @@ export const SQUAD_A: PlayerProfile[] = [
     // Luka Modrić
     {
         name: "Luka Modrić",
+        number: 10,
         position: 'MF',
         pace: 12,
         accel: 13,
@@ -165,6 +172,7 @@ export const SQUAD_A: PlayerProfile[] = [
     // Kevin De Bruyne
     {
         name: "Kevin De Bruyne",
+        number: 17,
         position: 'MF',
         pace: 13,
         accel: 12,
@@ -188,6 +196,7 @@ export const SQUAD_A: PlayerProfile[] = [
     // Mohamed Salah
     {
         name: "Mohamed Salah",
+        number: 11,
         position: 'FW',
         pace: 17,
         accel: 18,
@@ -211,6 +220,7 @@ export const SQUAD_A: PlayerProfile[] = [
     // Erling Haaland
     {
         name: "Erling Haaland",
+        number: 9,
         position: 'FW',
         pace: 17,
         accel: 16,
@@ -234,6 +244,7 @@ export const SQUAD_A: PlayerProfile[] = [
     // Son Heung-min
     {
         name: "Son Heung-min",
+        number: 7,
         position: 'FW',
         pace: 18,
         accel: 17,

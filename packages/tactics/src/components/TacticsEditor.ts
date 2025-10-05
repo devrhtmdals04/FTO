@@ -1,5 +1,6 @@
 
 import type { Tactic } from '../models/tactic';
+import { FORMATION_PRESETS, FORMATION_PRESET_VALUES } from '../presets/formationPresets';
 import type { TacticsStore } from '../state/tacticsStore';
 
 const STYLE_ELEMENT_ID = 'fto-tactics-editor-styles';
@@ -196,18 +197,39 @@ export class TacticsEditor {
   #renderPhaseContent = (phase: 'Attacking' | 'Deffending'): string => {
     const target = this.#tactic[phase];
     const formationValue = this.#escapeHtml(target.formation);
-    const styleOptions = (phase === 'Attacking' ? IN_POSSESSION_STYLE_OPTIONS : OUT_OF_POSSESSION_STYLE_OPTIONS)
-      .map(option => `<option value="${option.value}" ${option.value === target.style ? 'selected' : ''}>${this.#escapeHtml(option.label)}</option>`) 
+    const phaseSlug = phase.toLowerCase();
+    const presetSelectId = `formation-preset-select-${phaseSlug}`;
+    const formationInputId = `formation-input-${phaseSlug}`;
+    const styleSelectId = `style-select-${phaseSlug}`;
+    const hasPreset = FORMATION_PRESET_VALUES.has(target.formation);
+    const presetOptions = FORMATION_PRESETS
+      .map(preset => {
+        const isActive = preset.value === target.formation;
+        const valueAttr = this.#escapeHtml(preset.value);
+        const label = this.#escapeHtml(preset.label);
+        return `<option value="${valueAttr}" ${isActive ? 'selected' : ''}>${label}</option>`;
+      })
       .join('');
+    const styleOptions = (phase === 'Attacking' ? IN_POSSESSION_STYLE_OPTIONS : OUT_OF_POSSESSION_STYLE_OPTIONS)
+      .map(option => `<option value="${option.value}" ${option.value === target.style ? 'selected' : ''}>${this.#escapeHtml(option.label)}</option>`)
+      .join('');
+    const customSelected = hasPreset ? '' : 'selected';
 
     return `
       <div class="control-group">
-        <label for="formation-input">포메이션</label>
-        <input type="text" id="formation-input" data-role="formation-input" data-phase="${phase}" value="${formationValue}">
+        <label for="${presetSelectId}">포메이션 프리셋</label>
+        <select id="${presetSelectId}" data-role="formation-select" data-phase="${phase}">
+          <option value="__custom__" ${customSelected}>직접 입력</option>
+          ${presetOptions}
+        </select>
       </div>
       <div class="control-group">
-        <label for="style-select">스타일</label>
-        <select id="style-select" data-role="style-select" data-phase="${phase}">
+        <label for="${formationInputId}">포메이션</label>
+        <input type="text" id="${formationInputId}" data-role="formation-input" data-phase="${phase}" value="${formationValue}">
+      </div>
+      <div class="control-group">
+        <label for="${styleSelectId}">스타일</label>
+        <select id="${styleSelectId}" data-role="style-select" data-phase="${phase}">
           ${styleOptions}
         </select>
       </div>
@@ -250,6 +272,10 @@ export class TacticsEditor {
       input.addEventListener('change', this.#handleFormationChange);
     });
 
+    this.#options.mount.querySelectorAll<HTMLSelectElement>('[data-role="formation-select"]').forEach(select => {
+      select.addEventListener('change', this.#handleFormationPresetChange);
+    });
+
     this.#options.mount.querySelectorAll<HTMLSelectElement>('[data-role="style-select"]').forEach(select => {
       select.addEventListener('change', this.#handleStyleChange);
     });
@@ -279,6 +305,30 @@ export class TacticsEditor {
 
     this.#updateTactic(draft => {
       draft[phase].formation = input.value;
+    });
+  };
+
+  #handleFormationPresetChange = (event: Event): void => {
+    const select = event.target as HTMLSelectElement | null;
+    if (!select) return;
+    const phase = select.dataset.phase as 'Attacking' | 'Deffending' | undefined;
+    if (!phase) return;
+
+    const { value } = select;
+    if (value === '__custom__') {
+      const input = this.#options.mount.querySelector<HTMLInputElement>(`[data-role="formation-input"][data-phase="${phase}"]`);
+      input?.focus();
+      input?.select();
+      return;
+    }
+
+    const input = this.#options.mount.querySelector<HTMLInputElement>(`[data-role="formation-input"][data-phase="${phase}"]`);
+    if (input) {
+      input.value = value;
+    }
+
+    this.#updateTactic(draft => {
+      draft[phase].formation = value;
     });
   };
 

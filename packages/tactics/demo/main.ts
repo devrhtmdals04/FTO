@@ -1,6 +1,6 @@
 import { TacticsSettingsRoot, TacticsStore, Tactic, EngineBridge, TacticSummary, PRESET_TACTICS, PitchDisplay } from '../src/index';
 import { SquadDisplay } from '../../squad/src/components/SquadDisplay';
-import type { PlayerProfile } from '../../squad/src/index';
+import { SQUAD_A, SQUAD_B, type PlayerProfile } from '../../squad/src/index';
 
 // --- Mock Engine Bridge ---
 // This simulates the communication with the Rust engine for the standalone demo.
@@ -113,13 +113,15 @@ const mockBridge: EngineBridge = {
 
 // --- App Initialization ---
 const leftPanelMount = document.getElementById('left-panel-container');
+const centerPanelMount = document.getElementById('center-panel-container');
 const presetListMount = document.getElementById('preset-selection-container');
 const pitchPanelMount = document.getElementById('pitch-container');
 const rightPanelMount = document.getElementById('right-panel-container');
 
-if (leftPanelMount && presetListMount && pitchPanelMount && rightPanelMount) {
+if (leftPanelMount && centerPanelMount && presetListMount && pitchPanelMount && rightPanelMount) {
   // 1. Create the store with the mock bridge
   const store = new TacticsStore(mockBridge);
+  const squad = [...SQUAD_A, ...SQUAD_B];
 
   // 2. Mount the editor panel on the right
   new TacticsSettingsRoot({
@@ -130,21 +132,65 @@ if (leftPanelMount && presetListMount && pitchPanelMount && rightPanelMount) {
 
   // 3. Mount and manage the main pitch display in the center
   let mainPitch: PitchDisplay | null = null;
+  let currentTacticId: string | null = null;
+  let currentDisplayMode: 'Attacking' | 'Deffending' | null = null;
+
   store.subscribe(state => {
     if (state.activeTactic) {
-      mainPitch = new PitchDisplay({
-        mount: pitchPanelMount,
-        tactic: state.activeTactic,
-        mode: state.displayMode,
-      });
+      const tacticChanged = state.activeTactic.id !== currentTacticId;
+      const modeChanged = state.displayMode !== currentDisplayMode;
+
+      if (tacticChanged || modeChanged || !mainPitch) {
+        currentTacticId = state.activeTactic.id;
+        currentDisplayMode = state.displayMode;
+        mainPitch = new PitchDisplay({
+          mount: pitchPanelMount,
+          tactic: state.activeTactic,
+          squad: squad,
+          store: store,
+          mode: state.displayMode,
+        });
+      }
     } else {
       pitchPanelMount.innerHTML = '<p>Select a tactic to see the pitch display.</p>';
       mainPitch = null;
+      currentTacticId = null;
+      currentDisplayMode = null;
     }
   });
 
   // 4. Mount the squad display on the left
-  new SquadDisplay({ mount: leftPanelMount });
+  const leftPanelWrapper = document.createElement('div');
+  leftPanelWrapper.style.display = 'flex';
+  leftPanelWrapper.style.flexDirection = 'column';
+  leftPanelWrapper.style.height = '100%';
+  leftPanelWrapper.style.gap = '10px';
+
+  const squadDisplayMount = document.createElement('div');
+  squadDisplayMount.style.flex = '1';
+  squadDisplayMount.style.overflowY = 'auto';
+  squadDisplayMount.style.minHeight = '0';
+
+  const autoAssignButton = document.createElement('button');
+  autoAssignButton.textContent = 'Auto-assign Players';
+  autoAssignButton.style.width = '100%';
+  autoAssignButton.style.padding = '10px';
+  autoAssignButton.style.backgroundColor = '#3a76f7';
+  autoAssignButton.style.color = 'white';
+  autoAssignButton.style.border = 'none';
+  autoAssignButton.style.borderRadius = '6px';
+  autoAssignButton.style.cursor = 'pointer';
+  autoAssignButton.style.flexShrink = '0';
+
+  autoAssignButton.addEventListener('click', () => {
+    mainPitch?.autoAssignPlayers();
+  });
+
+  leftPanelWrapper.appendChild(squadDisplayMount);
+  leftPanelWrapper.appendChild(autoAssignButton);
+  leftPanelMount.appendChild(leftPanelWrapper);
+
+  new SquadDisplay({ mount: squadDisplayMount, store: store });
 
   // 5. Open the panel and load initial data
   store.openAndEnsureTactic();

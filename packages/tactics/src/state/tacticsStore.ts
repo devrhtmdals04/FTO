@@ -12,6 +12,7 @@ export interface TacticsState {
   readonly isOpen: boolean; // UI 패널 열림 상태
   readonly displayMode: 'Attacking' | 'Deffending'; // 현재 표시 모드
   readonly editorTab: 'Attacking' | 'Deffending' | 'transition'; // 에디터에서 선택된 탭
+  readonly occupiedPlayerNames: ReadonlySet<string>;
 }
 
 export type TacticsStoreListener = (state: TacticsState) => void;
@@ -23,6 +24,7 @@ const initialState: TacticsState = {
   isOpen: false,
   displayMode: 'Attacking',
   editorTab: 'Attacking',
+  occupiedPlayerNames: new Set(),
 };
 
 /**
@@ -63,6 +65,17 @@ export class TacticsStore {
       return;
     }
     this.#update({ editorTab: tab });
+  };
+
+  setOccupiedPlayerNames = (names: string[]): void => {
+    const newSet = new Set(names);
+    const currentSet = this.#state.occupiedPlayerNames;
+
+    if (newSet.size === currentSet.size && [...newSet].every(name => currentSet.has(name))) {
+      return;
+    }
+
+    this.#update({ occupiedPlayerNames: newSet });
   };
 
   /**

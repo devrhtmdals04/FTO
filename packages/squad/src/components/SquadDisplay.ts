@@ -1,9 +1,11 @@
 import { SQUAD_A, SQUAD_B, PlayerProfile, Player } from '../index';
 import { createPlayerMarker } from '../../../tactics/src/models/marker';
 import { createProfileOverlay } from './profile/ProfileOverlay';
+import type { TacticsStore } from '../../../tactics/src/state/tacticsStore';
 
 export interface SquadDisplayOptions {
   mount: HTMLElement;
+  store: TacticsStore;
 }
 
 // Helper to convert detailed profile to the 6-stat model for the marker
@@ -27,19 +29,25 @@ function convertProfileToPlayer(profile: PlayerProfile, id: number): Player {
 export class SquadDisplay {
   readonly #options: SquadDisplayOptions;
   #players: { player: Player, profile: PlayerProfile }[];
+  #unsubscribe: () => void;
 
   constructor(options: SquadDisplayOptions) {
     this.#options = options;
-    // Combine squads and convert them
     this.#players = [...SQUAD_A, ...SQUAD_B].map((profile, index) => ({
       profile,
       player: convertProfileToPlayer(profile, index + 1)
     }));
-    this.render();
+    this.#unsubscribe = this.#options.store.subscribe(this.render);
+    this.#addStyles();
   }
 
-  public render(): void {
+  destroy(): void {
+    this.#unsubscribe();
+  }
+
+  render = (): void => {
     this.#options.mount.innerHTML = ''; // Clear previous content
+    const { occupiedPlayerNames } = this.#options.store.snapshot;
 
     const squadList = document.createElement('div');
     squadList.className = 'squad-list';
@@ -49,6 +57,12 @@ export class SquadDisplay {
       playerCard.className = 'player-card';
       playerCard.dataset.playerId = player.id.toString();
       playerCard.draggable = true;
+
+      if (occupiedPlayerNames.has(profile.name)) {
+        playerCard.style.borderColor = '#3a76f7';
+        playerCard.style.borderWidth = '2px';
+        playerCard.style.borderStyle = 'solid';
+      }
 
       playerCard.addEventListener('dragstart', (event) => {
         if (event.dataTransfer) {
@@ -86,7 +100,6 @@ export class SquadDisplay {
     });
 
     this.#options.mount.appendChild(squadList);
-    this.#addStyles();
   }
 
   #addStyles(): void {
@@ -111,6 +124,7 @@ export class SquadDisplay {
         padding: 5px;
         border-radius: 8px;
         cursor: grab;
+        border: 2px solid transparent;
       }
       .player-card:active {
         cursor: grabbing;

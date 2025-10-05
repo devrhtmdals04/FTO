@@ -4,6 +4,7 @@ export const SQUAD_B: PlayerProfile[] = [
     // Thibaut Courtois
     {
         name: "Thibaut Courtois",
+        number: 1,
         position: 'GK',
         pace: 8,
         accel: 8,
@@ -27,6 +28,7 @@ export const SQUAD_B: PlayerProfile[] = [
     // Achraf Hakimi
     {
         name: "Achraf Hakimi",
+        number: 2,
         position: 'DF',
         pace: 19,
         accel: 19,
@@ -50,6 +52,7 @@ export const SQUAD_B: PlayerProfile[] = [
     // Virgil van Dijk
     {
         name: "Virgil van Dijk",
+        number: 4,
         position: 'DF',
         pace: 12,
         accel: 11,
@@ -73,6 +76,7 @@ export const SQUAD_B: PlayerProfile[] = [
     // David Alaba
     {
         name: "David Alaba",
+        number: 27,
         position: 'DF',
         pace: 13,
         accel: 13,
@@ -96,6 +100,7 @@ export const SQUAD_B: PlayerProfile[] = [
     // Andrew Robertson
     {
         name: "Andrew Robertson",
+        number: 26,
         position: 'DF',
         pace: 15,
         accel: 15,
@@ -119,6 +124,7 @@ export const SQUAD_B: PlayerProfile[] = [
     // Casemiro
     {
         name: "Casemiro",
+        number: 18,
         position: 'MF',
         pace: 10,
         accel: 9,
@@ -142,6 +148,7 @@ export const SQUAD_B: PlayerProfile[] = [
     // Toni Kroos
     {
         name: "Toni Kroos",
+        number: 8,
         position: 'MF',
         pace: 10,
         accel: 10,
@@ -165,6 +172,7 @@ export const SQUAD_B: PlayerProfile[] = [
     // Bruno Fernandes
     {
         name: "Bruno Fernandes",
+        number: 8,
         position: 'MF',
         pace: 13,
         accel: 13,
@@ -188,6 +196,7 @@ export const SQUAD_B: PlayerProfile[] = [
     // Lionel Messi
     {
         name: "Lionel Messi",
+        number: 10,
         position: 'FW',
         pace: 14,
         accel: 15,
@@ -211,6 +220,7 @@ export const SQUAD_B: PlayerProfile[] = [
     // Kylian Mbappé
     {
         name: "Kylian Mbappé",
+        number: 7,
         position: 'FW',
         pace: 20,
         accel: 20,
@@ -234,6 +244,7 @@ export const SQUAD_B: PlayerProfile[] = [
     // Vinícius Júnior
     {
         name: "Vinícius Júnior",
+        number: 7,
         position: 'FW',
         pace: 19,
         accel: 20,
