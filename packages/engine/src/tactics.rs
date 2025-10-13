@@ -25,3 +25,48 @@ impl Tactics {
         self
     }
 }
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct UiCustomFormationSlot {
+    pub role: String,
+    pub x: f32,
+    pub y: f32,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct UiInPossessionTactic {
+    pub formation: String,
+    pub style: String,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_formation: Option<Vec<UiCustomFormationSlot>>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct UiOutOfPossessionTactic {
+    pub formation: String,
+    pub style: String,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_formation: Option<Vec<UiCustomFormationSlot>>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct UiTransitionTactic {
+    pub on_loss: String,
+    pub on_win: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct UiTactic {
+    pub id: String,
+    pub label: String,
+    #[serde(rename = "Attacking")]
+    pub attacking: UiInPossessionTactic,
+    #[serde(rename = "Deffending")]
+    pub deffending: UiOutOfPossessionTactic,
+    pub transition: UiTransitionTactic,
+}

@@ -168,9 +168,9 @@ export class TacticsEditor {
       <div class="fto-tactics-editor-panel">
         <h3>${safeLabel}</h3>
         <div class="mode-tabs">
-          ${this.#renderTabButton('Attacking')}
           ${this.#renderTabButton('Deffending')}
           ${this.#renderTabButton('transition')}
+          ${this.#renderTabButton('Attacking')}
         </div>
         <div class="field-grid">
           ${activeContent}
@@ -329,6 +329,7 @@ export class TacticsEditor {
 
     this.#updateTactic(draft => {
       draft[phase].formation = value;
+      draft[phase].customFormation = undefined;
     });
   };
 

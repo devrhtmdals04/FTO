@@ -3,12 +3,19 @@ export type InPossessionStyle = 'default'; // 향후 '긴 패스 위주', '짧�
 export type OutOfPossessionStyle = 'default'; // 향후 '강한 압박', '지역 방어' 등 확장 가능
 export type TransitionStyle = 'press_on_heavy_touch' | 'fall_back';
 
+export interface CustomFormationSlot{
+  role: string;
+  x: number;
+  y: number;
+}
+
 /**
  * 공격 시(볼 소유 시) 전술 설정
  */
 export interface InPossessionTactic {
   formation: string; // 예: "3-2-4-1"
   style: InPossessionStyle;
+  customFormation?: CustomFormationSlot[];
 }
 
 /**
@@ -17,6 +24,7 @@ export interface InPossessionTactic {
 export interface OutOfPossessionTactic {
   formation: string; // 예: "4-4-2"
   style: OutOfPossessionStyle;
+  customFormation?: CustomFormationSlot[];
 }
 
 /**

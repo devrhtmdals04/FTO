@@ -11,6 +11,10 @@ export class WasmEngine {
   command(cmd: any): void;
   getPlayerDataJson(): string;
   view(): Uint8Array;
+  listTactics(): any;
+  loadTactic(id: string): any;
+  saveTactic(tactic_json: any): void;
+  deleteTactic(id: string): void;
 }
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
@@ -26,11 +30,18 @@ export interface InitOutput {
   readonly wasmengine_command: (a: number, b: any) => void;
   readonly wasmengine_getPlayerDataJson: (a: number) => [number, number];
   readonly wasmengine_view: (a: number) => [number, number];
+  readonly wasmengine_listTactics: (a: number) => [number, number, number];
+  readonly wasmengine_loadTactic: (a: number, b: number, c: number) => [number, number, number];
+  readonly wasmengine_saveTactic: (a: number, b: any) => [number, number];
+  readonly wasmengine_deleteTactic: (a: number, b: number, c: number) => [number, number];
   readonly start: () => void;
   readonly __wbindgen_malloc: (a: number, b: number) => number;
   readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
+  readonly __wbindgen_exn_store: (a: number) => void;
+  readonly __externref_table_alloc: () => number;
+  readonly __wbindgen_export_4: WebAssembly.Table;
   readonly __wbindgen_free: (a: number, b: number, c: number) => void;
-  readonly __wbindgen_export_3: WebAssembly.Table;
+  readonly __externref_table_dealloc: (a: number) => void;
   readonly __wbindgen_start: () => void;
 }
 

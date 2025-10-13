@@ -146,24 +146,31 @@ export function createEngineBridge() {
 
       // --- Tactics API (Placeholder Implementation) ---
       listTactics: async (): Promise<TacticSummary[]> => {
-        console.log('[Bridge] listTactics called');
-        // TODO: Implement communication with WASM engine to list tactics
-        return []; // Return dummy data
+        await readyPromise;
+        if (!ready) return [];
+        const tacticsJson = engine.listTactics() as string;
+        const tacticsMap = JSON.parse(tacticsJson) as Record<string, Tactic>;
+        return Object.values(tacticsMap).map(t => ({
+          id: t.id,
+          label: t.label,
+          in_possession_formation: t.Attacking.formation,
+          out_of_possession_formation: t.Deffending.formation,
+        }));
       },
       loadTactic: async (id: string): Promise<Tactic | null> => {
-        console.log(`[Bridge] loadTactic called with id: ${id}`);
-        // TODO: Implement communication with WASM engine to load a tactic
-        return null; // Return dummy data
+        await readyPromise;
+        if (!ready) return null;
+        return engine.loadTactic(id) as Tactic | null;
       },
       saveTactic: async (tactic: Tactic): Promise<void> => {
-        console.log('[Bridge] saveTactic called with tactic:', tactic);
-        // TODO: Implement communication with WASM engine to save a tactic
-        return Promise.resolve();
+        await readyPromise;
+        if (!ready) return;
+        engine.saveTactic(tactic as any);
       },
       deleteTactic: async (id: string): Promise<void> => {
-        console.log(`[Bridge] deleteTactic called with id: ${id}`);
-        // TODO: Implement communication with WASM engine to delete a tactic
-        return Promise.resolve();
+        await readyPromise;
+        if (!ready) return;
+        engine.deleteTactic(id);
       },
   }
 }

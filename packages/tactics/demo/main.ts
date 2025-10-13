@@ -134,15 +134,18 @@ if (leftPanelMount && centerPanelMount && presetListMount && pitchPanelMount && 
   let mainPitch: PitchDisplay | null = null;
   let currentTacticId: string | null = null;
   let currentDisplayMode: 'Attacking' | 'Deffending' | null = null;
+  let currentFormation: string | null = null;
 
   store.subscribe(state => {
     if (state.activeTactic) {
       const tacticChanged = state.activeTactic.id !== currentTacticId;
       const modeChanged = state.displayMode !== currentDisplayMode;
+      const formationChanged = state.activeTactic[state.displayMode].formation !== currentFormation;
 
-      if (tacticChanged || modeChanged || !mainPitch) {
+      if (tacticChanged || modeChanged || !mainPitch || formationChanged) {
         currentTacticId = state.activeTactic.id;
         currentDisplayMode = state.displayMode;
+        currentFormation = state.activeTactic[state.displayMode].formation;
         mainPitch = new PitchDisplay({
           mount: pitchPanelMount,
           tactic: state.activeTactic,
@@ -156,6 +159,7 @@ if (leftPanelMount && centerPanelMount && presetListMount && pitchPanelMount && 
       mainPitch = null;
       currentTacticId = null;
       currentDisplayMode = null;
+      currentFormation = null;
     }
   });
 

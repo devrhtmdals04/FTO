@@ -1,4 +1,4 @@
-import type { Tactic } from '../models/tactic';
+import type { Tactic, CustomFormationSlot } from '../models/tactic';
 import { getFormationSlots, type FormationSlot, FormationRole } from '../presets/formationPresets';
 import { createPlayerMarker } from '../models/marker';
 import { createProfileOverlay } from '../../../squad/src/components/profile/ProfileOverlay';
@@ -10,6 +10,9 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 const PITCH_WIDTH = 240;
 const PITCH_HEIGHT = 360;
 const MARGIN = 10;
+
+const GRID_COLS = 5;
+const GRID_ROWS = 6;
 
 const PITCH_COLOR = '#3A652A';
 const STRIPE_COLOR = 'rgba(0, 0, 0, 0.08)';
@@ -93,8 +96,18 @@ export class PitchDisplay {
   }
 
   #createSlots(): SlotState[] {
-    const phaseFormation = this.#options.tactic[this.#options.mode].formation;
-    return getFormationSlots(phaseFormation).map(slot => ({ ...slot, occupant: null }));
+    const tacticPhase = this.#options.tactic[this.#options.mode];
+    const { formation, customFormation } = tacticPhase;
+
+    if (customFormation && customFormation.length > 0) {
+      return customFormation.map((slot, index) => ({
+        ...slot,
+        index,
+        occupant: null,
+      })) as SlotState[];
+    }
+
+    return getFormationSlots(formation).map(slot => ({ ...slot, occupant: null }));
   }
 
   private createSvgElement(): SVGSVGElement {
@@ -365,11 +378,29 @@ export class PitchDisplay {
 
       const { slot } = this.#draggedSlot;
 
-      const newX = Math.max(0, Math.min(PITCH_WIDTH, coords.x));
-      const newY = Math.max(0, Math.min(PITCH_HEIGHT, coords.y));
+      const cellWidth = PITCH_WIDTH / GRID_COLS;
+      const cellHeight = PITCH_HEIGHT / GRID_ROWS;
 
-      slot.x = newX / PITCH_WIDTH;
-      slot.y = newY / PITCH_HEIGHT;
+      const col = Math.floor(coords.x / cellWidth);
+      const row = Math.floor(coords.y / cellHeight);
+
+      const snappedX = (col + 0.5) * cellWidth;
+      const snappedY = (row + 0.5) * cellHeight;
+
+      const newX = Math.max(0, Math.min(PITCH_WIDTH, snappedX));
+      const newY = Math.max(0, Math.min(PITCH_HEIGHT, snappedY));
+
+      const targetX = newX / PITCH_WIDTH;
+      const targetY = newY / PITCH_HEIGHT;
+
+      const collision = this.#slots.some(
+        s => s !== slot && Math.abs(s.x - targetX) < 0.01 && Math.abs(s.y - targetY) < 0.01
+      );
+
+      if (!collision) {
+        slot.x = targetX;
+        slot.y = targetY;
+      }
 
       this.render();
     }
@@ -382,13 +413,26 @@ export class PitchDisplay {
     const wasDragging = this.#draggedSlot.isDragging;
     const duration = Date.now() - this.#draggedSlot.startTime;
 
-    if (!wasDragging && duration < 200) {
+    if (wasDragging) {
+      this.#persistCustomFormation();
+    } else if (duration < 200) {
       this.#handleSlotClick(this.#draggedSlot.slot);
     }
 
     this.#draggedSlot = null;
     window.removeEventListener('mousemove', this.#handleSlotMouseMove);
     window.removeEventListener('mouseup', this.#handleSlotMouseUp);
+  }
+
+  #persistCustomFormation = (): void => {
+    const newFormation = this.getFormation();
+    const tactic = JSON.parse(JSON.stringify(this.#options.tactic)) as Tactic;
+    const phase = this.#options.mode;
+
+    tactic[phase].customFormation = newFormation;
+    tactic[phase].formation = 'Custom';
+
+    this.#options.store.updateActiveTactic(tactic);
   }
 
   #handleSlotClick = (slot: SlotState): void => {
@@ -558,6 +602,43 @@ export class PitchDisplay {
     cornerArc(PITCH_WIDTH, PITCH_HEIGHT - cornerRadius, PITCH_WIDTH - cornerRadius, PITCH_HEIGHT, 0);
   }
 
+  private drawGrid(): void {
+    const group = document.createElementNS(SVG_NS, 'g');
+    group.setAttribute('transform', `translate(${MARGIN}, ${MARGIN})`);
+    this.#svg.appendChild(group);
+
+    const cellWidth = PITCH_WIDTH / GRID_COLS;
+    const cellHeight = PITCH_HEIGHT / GRID_ROWS;
+
+    // Draw vertical lines
+    for (let i = 1; i < GRID_COLS; i++) {
+      const x = i * cellWidth;
+      const line = document.createElementNS(SVG_NS, 'line');
+      line.setAttribute('x1', x.toString());
+      line.setAttribute('y1', '0');
+      line.setAttribute('x2', x.toString());
+      line.setAttribute('y2', PITCH_HEIGHT.toString());
+      line.setAttribute('stroke', 'rgba(255, 255, 255, 0.1)');
+      line.setAttribute('stroke-width', '1');
+      line.setAttribute('stroke-dasharray', '3,3');
+      group.appendChild(line);
+    }
+
+    // Draw horizontal lines
+    for (let i = 1; i < GRID_ROWS; i++) {
+      const y = i * cellHeight;
+      const line = document.createElementNS(SVG_NS, 'line');
+      line.setAttribute('x1', '0');
+      line.setAttribute('y1', y.toString());
+      line.setAttribute('x2', PITCH_WIDTH.toString());
+      line.setAttribute('y2', y.toString());
+      line.setAttribute('stroke', 'rgba(255, 255, 255, 0.1)');
+      line.setAttribute('stroke-width', '1');
+      line.setAttribute('stroke-dasharray', '3,3');
+      group.appendChild(line);
+    }
+  }
+
   private drawPlayers(): void {
     const group = document.createElementNS(SVG_NS, 'g');
     group.setAttribute('transform', `translate(${MARGIN}, ${MARGIN})`);
@@ -683,6 +764,7 @@ export class PitchDisplay {
     this.#svg.innerHTML = '';
     this.#removeRoleSelectionMenu();
     this.drawPitch();
+    this.drawGrid();
     this.drawSlots();
     this.drawPlayers();
     this.#options.mount.appendChild(this.#svg);

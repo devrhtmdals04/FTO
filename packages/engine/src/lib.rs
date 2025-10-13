@@ -2,6 +2,7 @@
 
 use crate::state::compute_params_20;
 use crate::state::PlayerInput20;
+use crate::tactics::UiTactic;
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
@@ -171,5 +172,67 @@ impl WasmEngine {
         }
 
         buffer
+    }
+
+    fn window() -> Option<web_sys::Window> {
+        web_sys::window()
+    }
+
+    fn local_storage() -> Option<web_sys::Storage> {
+        Self::window().and_then(|w| w.local_storage().ok().flatten())
+    }
+
+    #[wasm_bindgen(js_name = "listTactics")]
+    pub fn list_tactics(&self) -> Result<JsValue, JsValue> {
+        let storage = Self::local_storage().ok_or_else(|| JsValue::from_str("localStorage not available"))?;
+        let tactics_json = storage.get_item("fto_tactics").map_err(|_| JsValue::from_str("Failed to get item from localStorage"))?.unwrap_or_else(|| "{}".to_string());
+        Ok(JsValue::from_str(&tactics_json))
+    }
+
+    #[wasm_bindgen(js_name = "loadTactic")]
+    pub fn load_tactic(&self, id: &str) -> Result<JsValue, JsValue> {
+        let storage = Self::local_storage().ok_or_else(|| JsValue::from_str("localStorage not available"))?;
+        let tactics_json = storage.get_item("fto_tactics").map_err(|_| JsValue::from_str("Failed to get item from localStorage"))?.unwrap_or_else(|| "{}".to_string());
+        let tactics: std::collections::HashMap<String, UiTactic> = serde_json::from_str(&tactics_json).unwrap_or_default();
+        if let Some(tactic) = tactics.get(id) {
+            Ok(serde_wasm_bindgen::to_value(tactic).unwrap_or(JsValue::NULL))
+        } else {
+            Ok(JsValue::NULL)
+        }
+    }
+
+    #[wasm_bindgen(js_name = "saveTactic")]
+    pub fn save_tactic(&mut self, tactic_json: JsValue) -> Result<(), JsValue> {
+        let tactic: UiTactic = serde_wasm_bindgen::from_value(tactic_json).map_err(|e| JsValue::from_str(&e.to_string()))?;
+        let storage = Self::local_storage().ok_or_else(|| JsValue::from_str("localStorage not available"))?;
+        let mut tactics: std::collections::HashMap<String, UiTactic> = 
+            storage.get_item("fto_tactics")
+                .map_err(|_| JsValue::from_str("Failed to get item from localStorage"))?
+                .map(|json_str| serde_json::from_str(&json_str).unwrap_or_default())
+                .unwrap_or_default();
+
+        tactics.insert(tactic.id.clone(), tactic);
+        
+        let new_tactics_json = serde_json::to_string(&tactics).map_err(|e| JsValue::from_str(&e.to_string()))?;
+        storage.set_item("fto_tactics", &new_tactics_json).map_err(|_| JsValue::from_str("Failed to set item in localStorage"))?;
+        
+        Ok(())
+    }
+
+    #[wasm_bindgen(js_name = "deleteTactic")]
+    pub fn delete_tactic(&mut self, id: &str) -> Result<(), JsValue> {
+        let storage = Self::local_storage().ok_or_else(|| JsValue::from_str("localStorage not available"))?;
+        let mut tactics: std::collections::HashMap<String, UiTactic> = 
+            storage.get_item("fto_tactics")
+                .map_err(|_| JsValue::from_str("Failed to get item from localStorage"))?
+                .map(|json_str| serde_json::from_str(&json_str).unwrap_or_default())
+                .unwrap_or_default();
+
+        tactics.remove(id);
+
+        let new_tactics_json = serde_json::to_string(&tactics).map_err(|e| JsValue::from_str(&e.to_string()))?;
+        storage.set_item("fto_tactics", &new_tactics_json).map_err(|_| JsValue::from_str("Failed to set item in localStorage"))?;
+
+        Ok(())
     }
 }

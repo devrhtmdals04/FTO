@@ -22,8 +22,8 @@ const initialState: TacticsState = {
   activeTactic: null,
   isLoading: false,
   isOpen: false,
-  displayMode: 'Attacking',
-  editorTab: 'Attacking',
+  displayMode: 'Deffending',
+  editorTab: 'Deffending',
   occupiedPlayerNames: new Set(),
 };
 
