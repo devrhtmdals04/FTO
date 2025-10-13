@@ -1,7 +1,8 @@
-import type { EngineTactic } from '../api/engine_types';
-import type { Tactic } from '../models/tactic';
+import type { EnginePlayerInstruction, EngineTactic } from '../api/engine_types';
+import type { PlayerDirectiveSet, PlayerInstruction, Tactic } from '../models/tactic';
 
 const BASE_PARAMS: EngineTactic = {
+  formation: 442,
   line_height: 0.5,
   press_intensity: 0.5,
   team_width: 0.5,
@@ -10,6 +11,33 @@ const BASE_PARAMS: EngineTactic = {
   long_ball_bias: 0.5,
   overlap_fullbacks: 0.5,
   compactness: 0.5,
+  player_instructions: [],
+};
+
+const cloneDirectiveSet = (directives?: PlayerDirectiveSet): PlayerDirectiveSet => {
+  if (!directives) return {};
+  const { marking, pressing, positioning } = directives;
+  return {
+    ...(marking ? { marking: { ...marking } as typeof marking } : {}),
+    ...(pressing ? { pressing: { ...pressing } } : {}),
+    ...(positioning ? { positioning: { ...positioning } as typeof positioning } : {}),
+  };
+};
+
+const toEnginePlayerInstructions = (
+  instructions: PlayerInstruction[] | undefined,
+): EnginePlayerInstruction[] => {
+  if (!instructions || instructions.length === 0) return [];
+  return instructions.map((instruction) => ({
+    player_index: instruction.playerIndex,
+    directives: cloneDirectiveSet(instruction.directives),
+  }));
+};
+
+const parseFormationCode = (formation: string): number => {
+  const digits = formation.replace(/[^\d]/g, '');
+  if (digits.length === 0) return 0;
+  return Number(digits);
 };
 
 /**
@@ -18,7 +46,12 @@ const BASE_PARAMS: EngineTactic = {
  * @returns EngineTactic object with values from 0 to 1.
  */
 export function tacticToEngineParams(tactic: Tactic): EngineTactic {
-  const params = { ...BASE_PARAMS };
+  const params: EngineTactic = {
+    ...BASE_PARAMS,
+    player_instructions: [],
+  };
+
+  params.formation = parseFormationCode(tactic.Attacking.formation);
 
   // This is a very simple placeholder mapping.
   // It can be expanded with more sophisticated logic.
@@ -33,7 +66,7 @@ export function tacticToEngineParams(tactic: Tactic): EngineTactic {
   }
 
   // Example: A very basic mapping from formation to line height
-  const formation = tactic.in_possession.formation;
+  const formation = tactic.Attacking.formation;
   if (formation.startsWith('3')) {
     // e.g., 3-4-3, 3-5-2
     params.line_height = 0.7; // More attacking
@@ -57,6 +90,8 @@ export function tacticToEngineParams(tactic: Tactic): EngineTactic {
       params.team_width = 0.4;
       break;
   }
+
+  params.player_instructions = toEnginePlayerInstructions(tactic.playerInstructions);
 
   return params;
 }

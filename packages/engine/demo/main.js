@@ -441,12 +441,18 @@ Ratings:\n`;
   const btnApplyTactics = document.getElementById("btn-apply-tactics");
   if (btnApplyTactics) btnApplyTactics.addEventListener("click", () => {
     const t = {
+      formation: 442,
       line_height: parseFloat(document.getElementById("tx-line").value),
       team_width: parseFloat(document.getElementById("tx-width").value),
       press_intensity: parseFloat(document.getElementById("tx-press").value),
-      build_up: 0.5, counter_press: 0.5, long_ball_bias: 0.5, overlap_fullbacks: 0.5, compactness: 0.5,
+      build_up: 0.5,
+      counter_press: 0.5,
+      long_ball_bias: 0.5,
+      overlap_fullbacks: 0.5,
+      compactness: 0.5,
+      player_instructions: [],
     };
-    const envelope = { apply_tick: jsTick + 3, type: "tactics_set", value: t };
+    const envelope = { apply_tick: jsTick + 3, type: "tactics_set", team_id: 0, tactics: t };
     try { engine.command(envelope); } catch (e) { console.warn("tactics rejected", e); }
   });
 

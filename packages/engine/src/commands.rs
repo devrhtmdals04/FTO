@@ -4,7 +4,7 @@ use crate::types::RoleParams;
 use serde::Deserialize;
 use wasm_bindgen::JsValue;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum Cmd {
     TacticsSet {
         team_id: u8,

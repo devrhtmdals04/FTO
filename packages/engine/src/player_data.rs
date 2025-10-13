@@ -1,4 +1,7 @@
-use crate::{state::PlayerInput20, types::{Foot, PlayerRole}};
+use crate::{
+    state::PlayerInput20,
+    types::{Foot, PlayerRole},
+};
 
 pub static SQUAD_A: [PlayerInput20; 11] = [
     // Alisson Becker

@@ -1,5 +1,5 @@
 import type { EngineBridge, TacticSummary } from '../api/types';
-import { Tactic, createEmptyTactic } from '../models/tactic';
+import { Tactic, createEmptyTactic, normalizeTactic } from '../models/tactic';
 import { PRESET_TACTICS } from '../presets/productor';
 
 /**
@@ -174,6 +174,7 @@ export class TacticsStore {
     }
 
     const cloned = JSON.parse(JSON.stringify(tactic)) as Tactic;
+    normalizeTactic(cloned);
     const summary = this.#toSummary(cloned);
     const others = this.#state.tactics.filter(t => t.id !== summary.id);
     const tactics = [summary, ...others];
@@ -211,6 +212,7 @@ export class TacticsStore {
     // 복잡한 객체의 깊은 복사를 통해 상태 불변성을 유지합니다.
     const newActiveTactic = JSON.parse(JSON.stringify(this.#state.activeTactic));
     Object.assign(newActiveTactic, patch);
+    normalizeTactic(newActiveTactic);
 
     const summary = this.#toSummary(newActiveTactic);
     const others = this.#state.tactics.filter(t => t.id !== summary.id);
@@ -229,8 +231,16 @@ export class TacticsStore {
 
   #loadTacticWithFallback = async (id: string): Promise<Tactic | null> => {
     const tactic = await this.#bridge.loadTactic(id);
-    if (tactic) return tactic;
-    return this.#findPresetById(id);
+    if (tactic) {
+      const cloned = JSON.parse(JSON.stringify(tactic)) as Tactic;
+      return normalizeTactic(cloned);
+    }
+    const preset = this.#findPresetById(id);
+    if (preset) {
+      const cloned = JSON.parse(JSON.stringify(preset)) as Tactic;
+      return normalizeTactic(cloned);
+    }
+    return null;
   };
 
   // --- 내부 상태 업데이트 헬퍼 ---

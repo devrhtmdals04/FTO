@@ -131,7 +131,7 @@ impl Engine {
             match cmd {
                 Cmd::TacticsSet { team_id, tactics } => {
                     if (team_id as usize) < self.world.tactics.len() {
-                        self.world.tactics[team_id as usize] = tactics;
+                        self.world.tactics[team_id as usize] = tactics.clamp();
                     }
                 }
                 Cmd::RoleOverride { pid, params, ttl } => {

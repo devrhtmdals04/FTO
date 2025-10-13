@@ -1,7 +1,19 @@
-import type { Tactic, CustomFormationSlot } from '../models/tactic';
+import type {
+  Tactic,
+  CustomFormationSlot,
+  PlayerSelectionEntry,
+  PlayerInstruction,
+} from '../models/tactic';
+import { normalizeTactic } from '../models/tactic';
 import { getFormationSlots, type FormationSlot, FormationRole } from '../presets/formationPresets';
+import { computeRoleLabels } from '../utils/roleLabels';
+import {
+  INSTRUCTION_PANEL_STYLE_ID,
+  INSTRUCTION_PANEL_STYLES,
+  getPressingConfig,
+  getPositioningConfig,
+} from '../utils/instructionPanel';
 import { createPlayerMarker } from '../models/marker';
-import { createProfileOverlay } from '../../../squad/src/components/profile/ProfileOverlay';
 import type { Player, PlayerProfile } from '../../../squad/src/index';
 import type { TacticsStore } from '../state/tacticsStore';
 
@@ -32,6 +44,7 @@ const ROLE_COLORS: Record<FormationRole, string> = {
   MF: '#27ae60',
   FW: '#eb5757',
 };
+
 
 type DraggedProfile = PlayerProfile & { jerseyNumber?: number };
 type SlotOccupant = DraggedProfile & { id: number };
@@ -67,6 +80,9 @@ interface SlotState {
   x: number; // normalized 0..1 across pitch width
   y: number; // normalized 0..1 across pitch height
   role: FormationRole;
+  label: string;
+  gridColumn?: number;
+  gridRow?: number;
   occupant: SlotOccupant | null;
   element?: SVGPolygonElement;
 }
@@ -78,20 +94,24 @@ export class PitchDisplay {
   #nextPlayerId = 1;
   #highlightedSlotIndex: number | null = null;
   #draggedSlot: { slot: SlotState, startX: number, startY: number, isDragging: boolean, startTime: number } | null = null;
-  #roleSelectionMenu: HTMLDivElement | null = null;
+  #instructionPanel: HTMLDivElement | null = null;
+  #instructionPanelSlot: SlotState | null = null;
 
   constructor(options: PitchDisplayOptions) {
     this.#options = options;
     this.#slots = this.#createSlots();
+    this.#restorePlayerSelection();
     this.#svg = this.createSvgElement();
+    this.#ensureInstructionPanelStyles();
     this.#svg.addEventListener('dragover', this.#handleDragOver);
     this.#svg.addEventListener('dragleave', this.#handleDragLeave);
     this.#svg.addEventListener('drop', this.#handleDrop);
     window.addEventListener('mousedown', (e) => {
-      if (this.#roleSelectionMenu && !this.#roleSelectionMenu.contains(e.target as Node)) {
-        this.#removeRoleSelectionMenu();
+      if (this.#instructionPanel && !this.#instructionPanel.contains(e.target as Node)) {
+        this.#closeInstructionPanel();
       }
     });
+    window.addEventListener('keydown', this.#handleInstructionKeyDown);
     this.render();
   }
 
@@ -100,14 +120,35 @@ export class PitchDisplay {
     const { formation, customFormation } = tacticPhase;
 
     if (customFormation && customFormation.length > 0) {
-      return customFormation.map((slot, index) => ({
-        ...slot,
-        index,
-        occupant: null,
-      })) as SlotState[];
+      const slots = customFormation.map((slot, index) => {
+        const gridColumn = slot.gridColumn ?? Math.max(0, Math.min(GRID_COLS - 1, Math.round(slot.x * GRID_COLS - 0.5)));
+        const gridRow = slot.gridRow ?? Math.max(0, Math.min(GRID_ROWS - 1, Math.round(slot.y * GRID_ROWS - 0.5)));
+        const x = (gridColumn + 0.5) / GRID_COLS;
+        const y = (gridRow + 0.5) / GRID_ROWS;
+        return {
+          index,
+          role: slot.role as FormationRole,
+          x,
+          y,
+          gridColumn,
+          gridRow,
+          occupant: null,
+          label: slot.role,
+        } satisfies SlotState;
+      });
+      this.#assignRoleLabels(slots);
+      return slots;
     }
 
-    return getFormationSlots(formation).map(slot => ({ ...slot, occupant: null }));
+    const slots = getFormationSlots(formation).map(slot => {
+      const gridColumn = Math.max(0, Math.min(GRID_COLS - 1, Math.round(slot.x * GRID_COLS - 0.5)));
+      const gridRow = Math.max(0, Math.min(GRID_ROWS - 1, Math.round(slot.y * GRID_ROWS - 0.5)));
+      const x = (gridColumn + 0.5) / GRID_COLS;
+      const y = (gridRow + 0.5) / GRID_ROWS;
+      return { ...slot, x, y, occupant: null, label: slot.role, gridColumn, gridRow };
+    });
+    this.#assignRoleLabels(slots);
+    return slots;
   }
 
   private createSvgElement(): SVGSVGElement {
@@ -118,12 +159,37 @@ export class PitchDisplay {
     return svg;
   }
 
+  #assignRoleLabels(slots: SlotState[]): void {
+    const labels = computeRoleLabels(slots.map(slot => ({ index: slot.index, x: slot.x, role: slot.role })));
+    slots.forEach(slot => {
+      slot.label = labels.get(slot.index) ?? slot.role;
+    });
+  }
+
+  #ensureInstructionPanelStyles(): void {
+    const doc = this.#options.mount.ownerDocument ?? document;
+    if (doc.getElementById(INSTRUCTION_PANEL_STYLE_ID)) return;
+    const style = doc.createElement('style');
+    style.id = INSTRUCTION_PANEL_STYLE_ID;
+    style.textContent = INSTRUCTION_PANEL_STYLES;
+    doc.head.appendChild(style);
+  }
+
   #updateOccupiedPlayers = (): void => {
     const names = this.#slots.map(s => s.occupant?.name).filter(Boolean) as string[];
     this.#options.store.setOccupiedPlayerNames(names);
   }
 
   public autoAssignPlayers(): void {
+    const allOccupied = this.#slots.every(slot => slot.occupant);
+    if (allOccupied) {
+      for (const slot of this.#slots) {
+        slot.occupant = null;
+      }
+      this.render();
+      return;
+    }
+
     const playersToAssign = [...this.#options.squad];
     const assignedPlayerNames = new Set<string>();
 
@@ -381,17 +447,13 @@ export class PitchDisplay {
       const cellWidth = PITCH_WIDTH / GRID_COLS;
       const cellHeight = PITCH_HEIGHT / GRID_ROWS;
 
-      const col = Math.floor(coords.x / cellWidth);
-      const row = Math.floor(coords.y / cellHeight);
+      const rawCol = Math.floor(coords.x / cellWidth);
+      const rawRow = Math.floor(coords.y / cellHeight);
+      const gridColumn = Math.max(0, Math.min(GRID_COLS - 1, rawCol));
+      const gridRow = Math.max(0, Math.min(GRID_ROWS - 1, rawRow));
 
-      const snappedX = (col + 0.5) * cellWidth;
-      const snappedY = (row + 0.5) * cellHeight;
-
-      const newX = Math.max(0, Math.min(PITCH_WIDTH, snappedX));
-      const newY = Math.max(0, Math.min(PITCH_HEIGHT, snappedY));
-
-      const targetX = newX / PITCH_WIDTH;
-      const targetY = newY / PITCH_HEIGHT;
+      const targetX = (gridColumn + 0.5) / GRID_COLS;
+      const targetY = (gridRow + 0.5) / GRID_ROWS;
 
       const collision = this.#slots.some(
         s => s !== slot && Math.abs(s.x - targetX) < 0.01 && Math.abs(s.y - targetY) < 0.01
@@ -400,6 +462,8 @@ export class PitchDisplay {
       if (!collision) {
         slot.x = targetX;
         slot.y = targetY;
+        slot.gridColumn = gridColumn;
+        slot.gridRow = gridRow;
       }
 
       this.render();
@@ -416,7 +480,7 @@ export class PitchDisplay {
     if (wasDragging) {
       this.#persistCustomFormation();
     } else if (duration < 200) {
-      this.#handleSlotClick(this.#draggedSlot.slot);
+      this.#openInstructionPanel(this.#draggedSlot.slot);
     }
 
     this.#draggedSlot = null;
@@ -432,63 +496,425 @@ export class PitchDisplay {
     tactic[phase].customFormation = newFormation;
     tactic[phase].formation = 'Custom';
 
+    normalizeTactic(tactic);
     this.#options.store.updateActiveTactic(tactic);
   }
 
-  #handleSlotClick = (slot: SlotState): void => {
-    if (slot.occupant) return;
+  #openInstructionPanel(slot: SlotState): void {
+    this.#closeInstructionPanel();
 
-    this.#removeRoleSelectionMenu();
+    const occupant = slot.occupant ?? null;
+    const tactic = this.#options.tactic;
+    const instructions = tactic.playerInstructions ?? [];
+    const occupantIndex = typeof occupant?.index === 'number' ? occupant.index : null;
 
-    const menu = document.createElement('div');
-    menu.className = 'role-selection-menu';
-    const slotRect = slot.element!.getBoundingClientRect();
-    menu.style.position = 'absolute';
-    menu.style.left = `${slotRect.right + 5}px`;
-    menu.style.top = `${slotRect.top}px`;
-    menu.style.backgroundColor = '#2a2a2a';
-    menu.style.border = '1px solid #444';
-    menu.style.borderRadius = '4px';
-    menu.style.padding = '4px';
-    menu.style.display = 'flex';
-    menu.style.flexDirection = 'column';
-    menu.style.gap = '4px';
-    menu.style.zIndex = '100';
+    const existingInstruction = occupantIndex != null
+      ? instructions.find(entry => entry.playerIndex === occupantIndex)
+      : undefined;
 
-    const roles: FormationRole[] = ['GK', 'DF', 'MF', 'FW'];
-    roles.forEach(role => {
-      const button = document.createElement('button');
-      button.textContent = role;
-      button.style.backgroundColor = '#3a3a3a';
-      button.style.color = 'white';
-      button.style.border = '1px solid #555';
-      button.style.borderRadius = '3px';
-      button.style.cursor = 'pointer';
-      button.onclick = () => {
-        slot.role = role;
-        this.#removeRoleSelectionMenu();
-        this.render();
-      };
-      menu.appendChild(button);
+    const fallbackInstruction = instructions.find(entry => entry.playerIndex === slot.index);
+
+    const initialPlayerIndex = existingInstruction?.playerIndex ?? fallbackInstruction?.playerIndex ?? null;
+
+    const workingInstruction: PlayerInstruction = existingInstruction
+      ? JSON.parse(JSON.stringify(existingInstruction))
+      : fallbackInstruction
+        ? JSON.parse(JSON.stringify(fallbackInstruction))
+        : {
+            playerIndex: occupantIndex ?? slot.index,
+            directives: {},
+          };
+
+    const panel = document.createElement('div');
+    panel.className = 'tactics-instruction-panel';
+
+    const roleOptions = (['GK', 'DF', 'MF', 'FW'] as const)
+      .map(role => `<option value="${role}" ${role === slot.role ? 'selected' : ''}>${role}</option>`)
+      .join('');
+
+    const markingType = workingInstruction.directives.marking?.type ?? '';
+    const markingTarget = workingInstruction.directives.marking?.type === 'man'
+      ? workingInstruction.directives.marking.targetPlayerIndex
+      : '';
+    if (slot.role !== 'DF') {
+      delete workingInstruction.directives.marking;
+    }
+
+    const pressingConfig = getPressingConfig(slot.role);
+    const positioningConfig = getPositioningConfig(slot.role);
+
+    const pressingActive = workingInstruction.directives.pressing != null;
+    const pressingIntensity = workingInstruction.directives.pressing?.intensity ?? 0.5;
+    const pressingTrigger = workingInstruction.directives.pressing?.trigger ?? 'always';
+    let positioningType = workingInstruction.directives.positioning?.type ?? '';
+    const positioningX = workingInstruction.directives.positioning?.type === 'hold_zone'
+      ? workingInstruction.directives.positioning.x
+      : 0.5;
+    const positioningY = workingInstruction.directives.positioning?.type === 'hold_zone'
+      ? workingInstruction.directives.positioning.y
+      : 0.5;
+
+    const positioningOptions = positioningConfig.options ?? [];
+    if (positioningOptions.length > 0 && !positioningOptions.some(opt => opt.value === positioningType)) {
+      positioningType = '';
+    }
+
+    const bodyFields: string[] = [];
+    bodyFields.push(`
+      <label>
+        포지션 역할
+        <select data-role="instruction-role">${roleOptions}</select>
+      </label>
+    `);
+    bodyFields.push(`
+      <label>
+        선수 인덱스
+        <input type="number" min="0" max="21" value="${workingInstruction.playerIndex}" data-role="instruction-player-index">
+      </label>
+    `);
+
+    if (slot.role === 'DF') {
+      bodyFields.push(`
+        <label>
+          마킹 유형
+          <select data-role="instruction-marking">
+            <option value="" ${markingType === '' ? 'selected' : ''}>없음</option>
+            <option value="zonal" ${markingType === 'zonal' ? 'selected' : ''}>지역 방어</option>
+            <option value="man" ${markingType === 'man' ? 'selected' : ''}>대인 방어</option>
+          </select>
+        </label>
+      `);
+      bodyFields.push(`
+        <label>
+          마킹 대상
+          <input type="number" min="0" max="21" value="${markingTarget}" data-role="instruction-marking-target" ${markingType === 'man' ? '' : 'disabled'}>
+        </label>
+      `);
+    }
+
+    bodyFields.push(`
+      <label>
+        ${pressingConfig.toggleLabel}
+        <input type="checkbox" data-role="instruction-pressing-toggle" ${pressingActive ? 'checked' : ''}>
+      </label>
+    `);
+    bodyFields.push(`
+      <label>
+        ${pressingConfig.intensityLabel}
+        <input type="number" min="0" max="1" step="0.05" value="${pressingIntensity.toFixed(2)}" data-role="instruction-pressing-intensity" ${pressingActive ? '' : 'disabled'}>
+      </label>
+    `);
+    bodyFields.push(`
+      <label>
+        ${pressingConfig.triggerLabel}
+        <select data-role="instruction-pressing-trigger" ${pressingActive ? '' : 'disabled'}>
+          <option value="always" ${pressingTrigger === 'always' ? 'selected' : ''}>상시</option>
+          <option value="near_ball" ${pressingTrigger === 'near_ball' ? 'selected' : ''}>볼 근처</option>
+          <option value="on_touch" ${pressingTrigger === 'on_touch' ? 'selected' : ''}>터치 시</option>
+        </select>
+      </label>
+    `);
+
+    if (positioningOptions.length > 0) {
+      const positioningOptionsHtml = positioningOptions
+        .map(option => `<option value="${option.value}" ${option.value === positioningType ? 'selected' : ''}>${option.label}</option>`)
+        .join('');
+      bodyFields.push(`
+        <label>
+          ${positioningConfig.selectLabel}
+          <select data-role="instruction-positioning">
+            ${positioningOptionsHtml}
+          </select>
+        </label>
+      `);
+      bodyFields.push(`
+        <label>
+          ${positioningConfig.xLabel}
+          <input type="number" min="0" max="1" step="0.01" value="${positioningX.toFixed(2)}" data-role="instruction-positioning-x" ${positioningType === 'hold_zone' ? '' : 'disabled'}>
+        </label>
+      `);
+      bodyFields.push(`
+        <label>
+          ${positioningConfig.yLabel}
+          <input type="number" min="0" max="1" step="0.01" value="${positioningY.toFixed(2)}" data-role="instruction-positioning-y" ${positioningType === 'hold_zone' ? '' : 'disabled'}>
+        </label>
+      `);
+    }
+
+    panel.innerHTML = `
+      <div class="tactics-instruction-panel__header">
+        <div>
+          <div class="tactics-instruction-panel__title">${slot.label} (슬롯 ${slot.index + 1})</div>
+          ${occupant ? `<div class="tactics-instruction-panel__subtitle">${occupant.name}${occupant.jerseyNumber ? ` (#${occupant.jerseyNumber})` : ''}</div>` : '<div class="tactics-instruction-panel__subtitle">배치된 선수가 없습니다</div>'}
+        </div>
+        <button type="button" class="tactics-instruction-panel__close" data-role="instruction-close">✕</button>
+      </div>
+      <div class="tactics-instruction-panel__body">
+        ${bodyFields.join('\n')}
+      </div>
+      <div class="tactics-instruction-panel__footer">
+        <button type="button" class="tactics-instruction-panel__danger" data-role="instruction-remove">지침 제거</button>
+        <div class="tactics-instruction-panel__gap"></div>
+        <button type="button" class="tactics-instruction-panel__primary" data-role="instruction-apply">적용</button>
+      </div>
+    `;
+
+    document.body.appendChild(panel);
+    this.#instructionPanel = panel;
+    this.#instructionPanelSlot = slot;
+
+    this.#positionInstructionPanel(slot, panel);
+
+    panel.querySelector('[data-role="instruction-close"]')?.addEventListener('click', () => this.#closeInstructionPanel());
+    panel.querySelector('[data-role="instruction-role"]')?.addEventListener('change', (event) => {
+      const select = event.target as HTMLSelectElement;
+      const newRole = select.value as FormationRole;
+      const slotIndex = slot.index;
+      slot.role = newRole;
+      this.render();
+      const updatedSlot = this.#slots.find(s => s.index === slotIndex);
+      if (updatedSlot) {
+        this.#openInstructionPanel(updatedSlot);
+      }
+    });
+    panel.querySelector('[data-role="instruction-player-index"]')?.addEventListener('change', (event) => {
+      const input = event.target as HTMLInputElement;
+      const parsed = Number.parseInt(input.value, 10);
+      const clamped = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 0), 21) : 0;
+      input.value = String(clamped);
+      workingInstruction.playerIndex = clamped;
+    });
+    panel.querySelector('[data-role="instruction-marking"]')?.addEventListener('change', (event) => {
+      const select = event.target as HTMLSelectElement;
+      const targetInput = panel.querySelector<HTMLInputElement>('[data-role="instruction-marking-target"]');
+      if (select.value === 'man') {
+        workingInstruction.directives.marking = {
+          type: 'man',
+          targetPlayerIndex: Number.parseInt(targetInput?.value ?? '0', 10) || 0,
+        };
+        targetInput?.removeAttribute('disabled');
+      } else if (select.value === 'zonal') {
+        workingInstruction.directives.marking = { type: 'zonal' };
+        targetInput?.setAttribute('disabled', 'true');
+      } else {
+        delete workingInstruction.directives.marking;
+        targetInput?.setAttribute('disabled', 'true');
+      }
+    });
+    panel.querySelector('[data-role="instruction-marking-target"]')?.addEventListener('change', (event) => {
+      const input = event.target as HTMLInputElement;
+      const parsed = Number.parseInt(input.value, 10);
+      const clamped = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 0), 21) : 0;
+      input.value = String(clamped);
+      workingInstruction.directives.marking = { type: 'man', targetPlayerIndex: clamped };
     });
 
-    document.body.appendChild(menu);
-    this.#roleSelectionMenu = menu;
+    const pressingToggle = panel.querySelector<HTMLInputElement>('[data-role="instruction-pressing-toggle"]');
+    const pressingIntensityInput = panel.querySelector<HTMLInputElement>('[data-role="instruction-pressing-intensity"]');
+    const pressingTriggerSelect = panel.querySelector<HTMLSelectElement>('[data-role="instruction-pressing-trigger"]');
+
+    pressingToggle?.addEventListener('change', () => {
+      if (pressingToggle.checked) {
+        workingInstruction.directives.pressing = {
+          intensity: this.#clamp01(Number.parseFloat(pressingIntensityInput?.value ?? '0.5') || 0.5),
+          trigger: (pressingTriggerSelect?.value as 'always' | 'near_ball' | 'on_touch') ?? 'always',
+        };
+        pressingIntensityInput?.removeAttribute('disabled');
+        pressingTriggerSelect?.removeAttribute('disabled');
+      } else {
+        delete workingInstruction.directives.pressing;
+        pressingIntensityInput?.setAttribute('disabled', 'true');
+        pressingTriggerSelect?.setAttribute('disabled', 'true');
+      }
+    });
+
+    pressingIntensityInput?.addEventListener('change', () => {
+      const raw = Number.parseFloat(pressingIntensityInput.value);
+      const clamped = this.#clamp01(Number.isFinite(raw) ? raw : 0.5);
+      pressingIntensityInput.value = clamped.toFixed(2);
+      if (!workingInstruction.directives.pressing) {
+        workingInstruction.directives.pressing = { intensity: clamped, trigger: 'always' };
+      } else {
+        workingInstruction.directives.pressing.intensity = clamped;
+      }
+    });
+
+    pressingTriggerSelect?.addEventListener('change', () => {
+      const trigger = pressingTriggerSelect.value as 'always' | 'near_ball' | 'on_touch';
+      if (!workingInstruction.directives.pressing) {
+        workingInstruction.directives.pressing = { intensity: 0.5, trigger };
+      } else {
+        workingInstruction.directives.pressing.trigger = trigger;
+      }
+    });
+
+    const positioningSelect = panel.querySelector<HTMLSelectElement>('[data-role="instruction-positioning"]');
+    const posXInput = panel.querySelector<HTMLInputElement>('[data-role="instruction-positioning-x"]');
+    const posYInput = panel.querySelector<HTMLInputElement>('[data-role="instruction-positioning-y"]');
+
+    positioningSelect?.addEventListener('change', () => {
+      const value = positioningSelect.value;
+      switch (value) {
+        case '':
+          delete workingInstruction.directives.positioning;
+          posXInput?.setAttribute('disabled', 'true');
+          posYInput?.setAttribute('disabled', 'true');
+          break;
+        case 'hold_zone': {
+          const current = workingInstruction.directives.positioning?.type === 'hold_zone'
+            ? workingInstruction.directives.positioning
+            : { x: 0.5, y: 0.5 };
+          workingInstruction.directives.positioning = {
+            type: 'hold_zone',
+            x: this.#clamp01(current.x),
+            y: this.#clamp01(current.y),
+          };
+          posXInput?.removeAttribute('disabled');
+          posYInput?.removeAttribute('disabled');
+          posXInput!.value = workingInstruction.directives.positioning.x.toFixed(2);
+          posYInput!.value = workingInstruction.directives.positioning.y.toFixed(2);
+          break;
+        }
+        default:
+          workingInstruction.directives.positioning = { type: value as 'stay_wide' | 'cut_inside' | 'overlap' | 'underlap' };
+          posXInput?.setAttribute('disabled', 'true');
+          posYInput?.setAttribute('disabled', 'true');
+          break;
+      }
+    });
+
+    const handlePositionCoord = (input: HTMLInputElement, axis: 'x' | 'y') => {
+      const raw = Number.parseFloat(input.value);
+      const clamped = this.#clamp01(Number.isFinite(raw) ? raw : 0.5);
+      input.value = clamped.toFixed(2);
+      if (workingInstruction.directives.positioning?.type !== 'hold_zone') {
+        workingInstruction.directives.positioning = { type: 'hold_zone', x: 0.5, y: 0.5 };
+      }
+      if (axis === 'x') {
+        workingInstruction.directives.positioning.x = clamped;
+      } else {
+        workingInstruction.directives.positioning.y = clamped;
+      }
+    };
+
+    posXInput?.addEventListener('change', () => posXInput && handlePositionCoord(posXInput, 'x'));
+    posYInput?.addEventListener('change', () => posYInput && handlePositionCoord(posYInput, 'y'));
+
+    panel.querySelector('[data-role="instruction-remove"]')?.addEventListener('click', () => {
+      let nextInstructions = (this.#options.tactic.playerInstructions ?? []).filter(entry => entry.playerIndex !== workingInstruction.playerIndex);
+      if (initialPlayerIndex != null && initialPlayerIndex !== workingInstruction.playerIndex) {
+        nextInstructions = nextInstructions.filter(entry => entry.playerIndex !== initialPlayerIndex);
+      }
+      const nextTactic = JSON.parse(JSON.stringify(this.#options.tactic)) as Tactic;
+      nextTactic.playerInstructions = nextInstructions;
+      normalizeTactic(nextTactic);
+      this.#options.store.updateActiveTactic(nextTactic);
+      this.#closeInstructionPanel();
+    });
+
+    panel.querySelector('[data-role="instruction-apply"]')?.addEventListener('click', () => {
+      const nextTactic = JSON.parse(JSON.stringify(this.#options.tactic)) as Tactic;
+      let list = nextTactic.playerInstructions ?? [];
+      const sanitized: PlayerInstruction = JSON.parse(JSON.stringify(workingInstruction));
+
+      if (slot.role !== 'DF') {
+        delete sanitized.directives.marking;
+      } else if (!sanitized.directives.marking) {
+        delete sanitized.directives.marking;
+      }
+      if (!sanitized.directives.pressing) {
+        delete sanitized.directives.pressing;
+      } else {
+        sanitized.directives.pressing.intensity = this.#clamp01(sanitized.directives.pressing.intensity);
+      }
+      if (!sanitized.directives.positioning) {
+        delete sanitized.directives.positioning;
+      } else if ((positioningConfig.options ?? []).length === 0) {
+        delete sanitized.directives.positioning;
+      }
+
+      const hasDirective = Boolean(sanitized.directives.marking || sanitized.directives.pressing || sanitized.directives.positioning);
+
+      list = list.filter(entry => entry.playerIndex !== workingInstruction.playerIndex);
+      if (initialPlayerIndex != null && initialPlayerIndex !== workingInstruction.playerIndex) {
+        list = list.filter(entry => entry.playerIndex !== initialPlayerIndex);
+      }
+
+      if (hasDirective) {
+        list.push(sanitized);
+      }
+      nextTactic.playerInstructions = list;
+      normalizeTactic(nextTactic);
+      this.#options.store.updateActiveTactic(nextTactic);
+      this.#closeInstructionPanel();
+    });
   }
 
-  #removeRoleSelectionMenu = (): void => {
-    if (this.#roleSelectionMenu) {
-      this.#roleSelectionMenu.remove();
-      this.#roleSelectionMenu = null;
+  #closeInstructionPanel(): void {
+    if (this.#instructionPanel) {
+      this.#instructionPanel.remove();
+      this.#instructionPanel = null;
+      this.#instructionPanelSlot = null;
     }
   }
 
-  public getFormation(): { role: string, x: number, y: number }[] {
-    return this.#slots.map(slot => ({
-      role: slot.role,
-      x: slot.x,
-      y: slot.y,
-    }));
+  #positionInstructionPanel(slot: SlotState, panel: HTMLDivElement): void {
+    const rect = slot.element?.getBoundingClientRect();
+    if (!rect) {
+      panel.style.position = 'fixed';
+      panel.style.right = '24px';
+      panel.style.top = '24px';
+      return;
+    }
+
+    panel.style.position = 'absolute';
+    panel.style.left = `${rect.right + 12}px`;
+    panel.style.top = `${rect.top}px`;
+
+    const bounds = panel.getBoundingClientRect();
+    const margin = 12;
+
+    if (bounds.right > window.innerWidth - margin) {
+      panel.style.left = `${Math.max(margin, rect.left - bounds.width - margin)}px`;
+    }
+
+    if (bounds.bottom > window.innerHeight - margin) {
+      const adjustedTop = Math.max(margin, window.innerHeight - bounds.height - margin);
+      panel.style.top = `${adjustedTop}px`;
+    }
+  }
+
+  #clamp01(value: number): number {
+    if (!Number.isFinite(value)) return 0;
+    return Math.min(Math.max(value, 0), 1);
+  }
+
+  #handleInstructionKeyDown = (event: KeyboardEvent): void => {
+    if (event.key === 'Escape') {
+      this.#closeInstructionPanel();
+    }
+  };
+
+  public getFormation(): { role: string; x: number; y: number; gridColumn: number; gridRow: number }[] {
+    return this.#slots.map(slot => {
+      const column = Math.round(slot.x * GRID_COLS - 0.5);
+      const row = Math.round(slot.y * GRID_ROWS - 0.5);
+      const gridColumn = Math.max(0, Math.min(GRID_COLS - 1, column));
+      const gridRow = Math.max(0, Math.min(GRID_ROWS - 1, row));
+      const x = (gridColumn + 0.5) / GRID_COLS;
+      const y = (gridRow + 0.5) / GRID_ROWS;
+
+      slot.gridColumn = gridColumn;
+      slot.gridRow = gridRow;
+
+      return {
+        role: slot.role,
+        x,
+        y,
+        gridColumn,
+        gridRow,
+      };
+    });
   }
 
   private drawPitch(): void {
@@ -678,7 +1104,7 @@ export class PitchDisplay {
       text.setAttribute('text-anchor', 'middle');
       text.setAttribute('font-size', '7');
       text.setAttribute('fill', 'rgba(255, 255, 255, 0.7)');
-      text.textContent = slot.role;
+      text.textContent = slot.label;
       group.appendChild(text);
 
       polygon.addEventListener('mousedown', (e) => this.#handleSlotMouseDown(e, slot));
@@ -725,6 +1151,11 @@ export class PitchDisplay {
       event.dataTransfer.effectAllowed = 'move';
       event.dataTransfer.setData('application/x-fto-source', JSON.stringify({ source: 'pitch', slotIndex: slot.index }));
       event.dataTransfer.setDragImage(wrapper, markerSize / 2, markerSize / 2);
+      if (this.#draggedSlot) {
+        window.removeEventListener('mousemove', this.#handleSlotMouseMove);
+        window.removeEventListener('mouseup', this.#handleSlotMouseUp);
+        this.#draggedSlot = null;
+      }
       this.#setHighlightedSlot(slot);
     };
 
@@ -734,10 +1165,11 @@ export class PitchDisplay {
 
     wrapper.addEventListener('dragstart', onDragStart);
     wrapper.addEventListener('dragend', onDragEnd);
+    wrapper.addEventListener('mousedown', (event) => this.#handleSlotMouseDown(event as MouseEvent, slot));
 
-    foreignObject.addEventListener('click', () => {
-      const overlay = createProfileOverlay(profile);
-      document.body.appendChild(overlay);
+    foreignObject.addEventListener('click', (event) => {
+      event.preventDefault();
+      this.#openInstructionPanel(slot);
     });
 
     foreignObject.addEventListener('contextmenu', (event) => {
@@ -760,14 +1192,70 @@ export class PitchDisplay {
   }
 
   public render(): void {
+    this.#closeInstructionPanel();
+    this.#assignRoleLabels(this.#slots);
     this.#options.mount.innerHTML = '';
     this.#svg.innerHTML = '';
-    this.#removeRoleSelectionMenu();
     this.drawPitch();
     this.drawGrid();
     this.drawSlots();
     this.drawPlayers();
     this.#options.mount.appendChild(this.#svg);
     this.#updateOccupiedPlayers();
+    this.#persistPlayerSelection();
+  }
+
+  #restorePlayerSelection(): void {
+    const selection = this.#options.tactic.playerSelection ?? [];
+    if (selection.length === 0) {
+      return;
+    }
+
+    const squad = this.#options.squad;
+
+    for (const entry of selection) {
+      const slot = this.#slots.find(s => s.index === entry.slotIndex);
+      if (!slot) continue;
+
+      const profile = squad.find(player => player.name === entry.playerName);
+      if (!profile) continue;
+
+      const jerseyNumber = entry.playerNumber ?? profile.number ?? slot.index + 1;
+      const occupant: SlotOccupant = {
+        ...profile,
+        id: this.#nextPlayerId++,
+        jerseyNumber,
+        number: jerseyNumber,
+      };
+
+      slot.occupant = occupant;
+    }
+  }
+
+  #persistPlayerSelection(): void {
+    const currentSelection: PlayerSelectionEntry[] = this.#slots
+      .filter(slot => slot.occupant)
+      .map(slot => {
+        const player = slot.occupant!;
+        return {
+          slotIndex: slot.index,
+          playerName: player.name,
+          playerNumber: player.jerseyNumber ?? player.number,
+        } satisfies PlayerSelectionEntry;
+      })
+      .sort((a, b) => a.slotIndex - b.slotIndex);
+
+    const existingSelection = (this.#options.tactic.playerSelection ?? [])
+      .slice()
+      .sort((a, b) => a.slotIndex - b.slotIndex);
+
+    if (JSON.stringify(currentSelection) === JSON.stringify(existingSelection)) {
+      return;
+    }
+
+    const tactic = JSON.parse(JSON.stringify(this.#options.tactic)) as Tactic;
+    tactic.playerSelection = currentSelection;
+    normalizeTactic(tactic);
+    this.#options.store.updateActiveTactic(tactic);
   }
 }

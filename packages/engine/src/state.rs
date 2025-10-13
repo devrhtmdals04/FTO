@@ -109,7 +109,7 @@ impl World {
             home_score: 0,
             away_score: 0,
             possession: TeamId::Home.index() as i8,
-            tactics: [Tactics::default(); N_TEAMS],
+            tactics: std::array::from_fn(|_| Tactics::default()),
             p_team: [0; N_PLAYERS],
             p_role: [PlayerRole::default(); N_PLAYERS],
             p_params: [PlayerParams::default(); N_PLAYERS],
