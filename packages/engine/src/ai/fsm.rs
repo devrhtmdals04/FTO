@@ -4,6 +4,7 @@ use crate::ai::actions::on_the_ball_action::OnTheBallAction;
 use crate::ai::perception::{build_perception, PassTarget, Perception};
 use crate::commands::Cmd;
 use crate::state::World;
+use crate::tactics::ResolvedTactics;
 use crate::types::Vec2;
 use log::info;
 
@@ -39,6 +40,7 @@ pub enum ActionUpdate {
 pub struct ActionContext<'a> {
     pub perception: &'a Perception,
     pub player_index: usize,
+    pub tactics: &'a ResolvedTactics,
 }
 
 pub trait Action {
@@ -90,9 +92,12 @@ impl PlayerFSM {
         team_state: TeamState,
     ) -> Option<Cmd> {
         let perception = build_perception(world, player_index);
+        let tactics_profile = world.tactical_profile_for_player(player_index);
+
         let mut context = ActionContext {
             perception: &perception,
             player_index,
+            tactics: tactics_profile,
         };
 
         let current_action_is_done = match self.state {

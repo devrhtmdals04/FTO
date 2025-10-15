@@ -1,12 +1,13 @@
 use crate::ai::fsm::{PlayerFSM, TeamState};
 use crate::ai::scheduler::Scheduler;
 use crate::commands::{parse_command, Cmd, CommandBuffer, CommandError, ParseError};
+use crate::params::PITCH_H;
 use crate::physics::{ball::step_ball, player::step_players, PhysicsContext};
 use crate::rng::DeterministicRng;
 use crate::rules::{offside::check_offside, referee::update_referee, restarts::handle_restarts};
 use crate::snapshot::{self, DeltaBuffer, HashGuard, QuantizedWorld, SnapshotBuffer};
-use crate::state::{World, N_PLAYERS};
-use crate::types::{BallMode, TeamId, Vec2};
+use crate::state::{World, N_PLAYERS, N_TEAMS};
+use crate::types::{BallMode, GamePhase, TeamId, Vec2};
 
 pub struct Engine {
     pub world: World,
@@ -50,11 +51,57 @@ impl Engine {
             &mut self._rng.as_mut(),
         );
         self.update_possession();
+        let phases = self.determine_game_phases();
+        self.world.update_tactical_targets(&phases);
+        self.world.game_phases = phases;
         handle_restarts(&mut self.world);
         update_referee(&mut self.world);
         let _offside = check_offside(&self.world);
         self.update_hash();
         self.physics.rebuild_spatial(&self.world);
+    }
+
+    fn determine_game_phases(&self) -> [GamePhase; N_TEAMS] {
+        let possession_team_idx = self.world.possession;
+
+        if possession_team_idx == -1 {
+            // Neutral possession, both teams are in a transitional state.
+            // A more robust solution would track the previous possession to determine
+            // who is transitioning to attack vs. defense.
+            return [
+                GamePhase::TransitionToAttack,
+                GamePhase::TransitionToDefense,
+            ];
+        }
+
+        let attacking_team = TeamId::from_index(possession_team_idx as usize);
+        let defending_team = attacking_team.opponent();
+        let ball_pos = self.world.ball_pos();
+
+        // Attacking team's phase based on ball position.
+        // Pitch coordinates: y > 0 is Away team's half, y < 0 is Home team's half.
+        let pitch_third = PITCH_H / 3.0;
+
+        let attacking_direction_y = if attacking_team == TeamId::Home {
+            1.0
+        } else {
+            -1.0
+        };
+
+        let ball_y_in_attack_dir = ball_pos.y * attacking_direction_y;
+
+        let (attacking_phase, defending_phase) = if ball_y_in_attack_dir > pitch_third {
+            (GamePhase::Creation, GamePhase::LowBlock)
+        } else if ball_y_in_attack_dir > -pitch_third {
+            (GamePhase::Progression, GamePhase::MidBlock)
+        } else {
+            (GamePhase::BuildUp, GamePhase::HighBlock)
+        };
+
+        let mut phases = [GamePhase::default(); N_TEAMS];
+        phases[attacking_team.index()] = attacking_phase;
+        phases[defending_team.index()] = defending_phase;
+        phases
     }
 
     fn update_ai(&mut self) {
@@ -82,14 +129,16 @@ impl Engine {
     }
 
     fn determine_team_state(&self, team_id: TeamId) -> TeamState {
-        let possession_team = self.world.possession;
-        if possession_team < 0 {
-            return TeamState::Transition;
-        }
-        if possession_team == team_id.index() as i8 {
-            return TeamState::Attacking;
-        } else {
-            return TeamState::Defending;
+        match self.world.game_phases[team_id.index()] {
+            GamePhase::BuildUp
+            | GamePhase::Progression
+            | GamePhase::Creation
+            | GamePhase::SetPieceAttack => TeamState::Attacking,
+            GamePhase::HighBlock
+            | GamePhase::MidBlock
+            | GamePhase::LowBlock
+            | GamePhase::SetPieceDefense => TeamState::Defending,
+            GamePhase::TransitionToAttack | GamePhase::TransitionToDefense => TeamState::Transition,
         }
     }
 
@@ -131,7 +180,7 @@ impl Engine {
             match cmd {
                 Cmd::TacticsSet { team_id, tactics } => {
                     if (team_id as usize) < self.world.tactics.len() {
-                        self.world.tactics[team_id as usize] = tactics.clamp();
+                        self.world.apply_tactics(team_id as usize, tactics.clamp());
                     }
                 }
                 Cmd::RoleOverride { pid, params, ttl } => {

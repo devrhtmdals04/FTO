@@ -10,8 +10,8 @@ export interface TacticsState {
   readonly activeTactic: Tactic | null; // 현재 활성화/편집 중인 전술의 전체 데이터
   readonly isLoading: boolean; // 데이터 로딩 중 상태
   readonly isOpen: boolean; // UI 패널 열림 상태
-  readonly displayMode: 'Attacking' | 'Deffending'; // 현재 표시 모드
-  readonly editorTab: 'Attacking' | 'Deffending' | 'transition'; // 에디터에서 선택된 탭
+  readonly displayMode: 'InPossession' | 'OutOfPossession'; // 현재 표시 모드
+  readonly editorTab: 'InPossession' | 'OutOfPossession' | 'Transitions' | 'SetPieces'; // 에디터에서 선택된 탭
   readonly occupiedPlayerNames: ReadonlySet<string>;
 }
 
@@ -22,8 +22,8 @@ const initialState: TacticsState = {
   activeTactic: null,
   isLoading: false,
   isOpen: false,
-  displayMode: 'Deffending',
-  editorTab: 'Deffending',
+  displayMode: 'InPossession',
+  editorTab: 'InPossession',
   occupiedPlayerNames: new Set(),
 };
 
@@ -55,12 +55,12 @@ export class TacticsStore {
   open = () => this.#update({ isOpen: true });
   close = () => this.#update({ isOpen: false });
   toggle = () => this.#update({ isOpen: !this.#state.isOpen });
-  setDisplayMode = (mode: 'Attacking' | 'Deffending'): void => {
+  setDisplayMode = (mode: 'InPossession' | 'OutOfPossession'): void => {
     this.#update({ displayMode: mode, editorTab: mode });
   };
 
-  setEditorTab = (tab: 'Attacking' | 'Deffending' | 'transition'): void => {
-    if (tab === 'Attacking' || tab === 'Deffending') {
+  setEditorTab = (tab: 'InPossession' | 'OutOfPossession' | 'Transitions' | 'SetPieces'): void => {
+    if (tab === 'InPossession' || tab === 'OutOfPossession') {
       this.setDisplayMode(tab);
       return;
     }
@@ -254,8 +254,8 @@ export class TacticsStore {
     return {
       id: tactic.id,
       label: tactic.label,
-      in_possession_formation: tactic.Attacking.formation,
-      out_of_possession_formation: tactic.Deffending.formation,
+      in_possession_formation: tactic.inPossession.progression.formation,
+      out_of_possession_formation: tactic.outOfPossession.midBlock.formation,
     };
   }
 

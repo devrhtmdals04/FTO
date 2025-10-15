@@ -90,8 +90,8 @@ const mockBridge: EngineBridge = {
     return Object.values(tactics).map(t => ({
       id: t.id,
       label: t.label,
-      in_possession_formation: t.Attacking.formation,
-      out_of_possession_formation: t.Deffending.formation,
+      in_possession_formation: t.inPossession.progression.formation,
+      out_of_possession_formation: t.outOfPossession.midBlock.formation,
     }));
   },
   loadTactic: async (id: string): Promise<Tactic | null> => {
@@ -133,19 +133,22 @@ if (leftPanelMount && centerPanelMount && presetListMount && pitchPanelMount && 
   // 3. Mount and manage the main pitch display in the center
   let mainPitch: PitchDisplay | null = null;
   let currentTacticId: string | null = null;
-  let currentDisplayMode: 'Attacking' | 'Deffending' | null = null;
+  let currentDisplayMode: 'InPossession' | 'OutOfPossession' | null = null;
   let currentFormation: string | null = null;
 
   store.subscribe(state => {
     if (state.activeTactic) {
       const tacticChanged = state.activeTactic.id !== currentTacticId;
       const modeChanged = state.displayMode !== currentDisplayMode;
-      const formationChanged = state.activeTactic[state.displayMode].formation !== currentFormation;
+      const formation = state.displayMode === 'InPossession'
+        ? state.activeTactic.inPossession.progression.formation
+        : state.activeTactic.outOfPossession.midBlock.formation;
+      const formationChanged = formation !== currentFormation;
 
       if (tacticChanged || modeChanged || !mainPitch || formationChanged) {
         currentTacticId = state.activeTactic.id;
         currentDisplayMode = state.displayMode;
-        currentFormation = state.activeTactic[state.displayMode].formation;
+        currentFormation = formation;
         mainPitch = new PitchDisplay({
           mount: pitchPanelMount,
           tactic: state.activeTactic,

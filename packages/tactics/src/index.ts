@@ -10,3 +10,4 @@ export * from './utils/translator';
 export * from './components/PitchDisplay';
 export * from './components/TacticsEditor';
 export * from './models/marker';
+export * from './models/engineParams';

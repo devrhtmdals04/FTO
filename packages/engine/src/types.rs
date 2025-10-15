@@ -270,3 +270,23 @@ pub struct RoleOverrideState {
     pub ttl: u16,
     pub params: RoleParams,
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GamePhase {
+    BuildUp,
+    Progression,
+    Creation,
+    HighBlock,
+    MidBlock,
+    LowBlock,
+    TransitionToAttack,
+    TransitionToDefense,
+    SetPieceAttack,
+    SetPieceDefense,
+}
+
+impl Default for GamePhase {
+    fn default() -> Self {
+        GamePhase::BuildUp
+    }
+}

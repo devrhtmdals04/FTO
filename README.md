@@ -1,41 +1,189 @@
-# FTO-AI 엔진 아키텍처 개요
+# FTO Tactical Platform – Developer Guide
 
-이 문서는 현재까지 개발된 FTO AI 엔진의 핵심 아키텍처를 요약합니다.
+Welcome aboard! This document gives you just enough context to get productive on the FTO project. Skim it once, refer back as needed.
 
-## 핵심 철학: 인식 → 판단 → 행동
+## 1. Project Snapshot
 
-AI는 인간 선수처럼 주변 상황을 **인식**하고, 가장 유리한 행동을 **판단**하며, 결정된 행동을 **실행**하는 3단계 과정을 따릅니다.
+- **Monorepo layout**
+  - `packages/tactics`: TypeScript/Vite UI package (tactic editor, presets, shared models)
+  - `packages/viewer-3d`: Three.js viewer that streams tactics + engine output
+  - `packages/engine`: Rust WASM crate (physics, AI FSM, state machine)
+  - `packages/squad`: Player roster demo utilities
+- **Primary flow**: UI edits `Tactic` → translator maps to `EngineTactic` → engine applies per-state presets each tick → players act via FSM.
 
-### 1. 인식 (Perception) - `perception.rs`
+## 2. Quick Start
 
-AI가 세상을 보는 단계입니다. 매 순간 각 선수마다 `Perception`이라는 종합적인 데이터 구조를 생성합니다.
+```bash
+# install deps
+npm install
 
-- **기본 정보**: 자신, 팀원, 상대 선수의 위치, 속도, 공의 상태 등
-- **가공 정보**: 단순 위치 데이터뿐만 아니라, 판단에 직접적으로 도움이 되는 아래와 같은 정보들을 미리 계산합니다.
-    - **골대까지의 거리 및 각도**: 슈팅의 유효성을 판단하는 기본 지표입니다.
-    - **패스/슛 경로 개방도**: 상대 선수들의 위치를 기반으로 경로가 얼마나 안전한지 계산합니다. (Time-to-Intercept, TTI 알고리즘 사용)
-    - **기대 위협(Expected Threat, xT)**: 특정 위치로 이동하거나 패스했을 때, 골을 넣을 확률이 얼마나 높아지는지를 나타내는 값입니다.
+# start tactic editor + 3D viewer (two Vite apps)
+npm run dev
 
-### 2. 판단 (Decision) - `fsm.rs`
+# build + watch engine wasm (optional during heavy engine work)
+cargo watch -x "build --target wasm32-unknown-unknown"
 
-인식된 정보를 바탕으로 어떤 행동을 할지 결정하는 단계로, 각 선수는 자신만의 **유한 상태 머신(Finite State Machine, FSM)**을 가집니다.
+# one-off engine type check
+cargo check --manifest-path packages/engine/Cargo.toml
 
-- **상태 관리**: 선수는 `Idle`(대기), `AttackShoot`(슈팅), `AttackPass`(패스) 등 명확한 상태 중 하나에만 존재합니다.
-- **유틸리티 기반 판단**: `Idle` 상태일 때, AI는 `Perception` 데이터를 사용하여 가능한 모든 행동(슛, 패스, 드리블)의 '점수'를 계산합니다. (`score_shoot`, `score_pass` 등)
-- **상태 전이**: 가장 높은 점수를 받은 행동을 선택하고, 그에 맞는 상태로 자신을 전환합니다. (예: `Idle` -> `AttackShoot`)
+# TypeScript type checking (add TypeScript once happy with npm deps)
+npm install --save-dev typescript
+npm run typecheck
+```
 
-### 3. 행동 (Action) - `actions/` 디렉토리
+> The repo ships without a global `tsc`; install it before running `npm run typecheck`.
 
-판단 단계에서 결정된 행동을 실제로 수행하는 부분입니다. 각 액션은 독립적인 모듈로 분리되어 있습니다.
+## 3. High-Level Architecture
 
-- **모듈화된 액션**: `ShootAction`, `PassAction` 등 각 행동의 로직은 모두 자신의 파일 안에 캡슐화되어 있습니다.
-- **`begin` → `update` → `is_done` 패턴**:
-    - `begin`: 액션이 시작될 때 호출되며, 엔진에 `Cmd::Shoot` 같은 초기 명령을 보냅니다.
-    - `update`: 액션이 진행되는 동안 매 프레임 호출됩니다. (예: 슈팅 후 리바운드 준비)
-    - `is_done`: 액션이 끝났는지 여부를 반환합니다. `true`가 되면 FSM은 다시 `Idle` 상태로 돌아가 새로운 판단을 시작합니다.
+| Layer | Key files | Notes |
+| --- | --- | --- |
+| Domain models | `packages/tactics/src/models/tactic.ts`, `.../engineParams.ts` | `Tactic` now owns `engineStatePresets` (per-state params + guidelines). |
+| Translator | `packages/tactics/src/utils/translator.ts` | Converts `Tactic` (including legacy fields) → `EngineTactic` + state presets. |
+| Engine schema | `packages/engine/src/tactics.rs` | Rust mirror of `EngineTactic`, `StatePresetMap`, `ResolvedTactics`. |
+| Runtime state | `packages/engine/src/state.rs` | `TeamTacticRuntime` interpolates presets (10 ticks ≈ 0.5 s easing). |
+| AI behaviours | `packages/engine/src/ai/**/*.rs` | FSM pulls current `ResolvedTactics` for movement/decision weights. |
+| UI | `packages/tactics/src/components/TacticsEditor.ts` | Exposes sliders/selects for every state + shows coaching guidelines. |
 
-## 엔진과의 통합 - `engine.rs`
+## 4. Editing Tactics in the UI
 
-- `Engine`은 모든 선수의 FSM 인스턴스를 관리합니다.
-- 매 틱마다 각 선수의 `fsm.tick()`을 호출하여 AI 로직 전체(인식, 판단, 행동)를 실행시킵니다.
-- FSM이 반환하는 최종 명령(`Cmd`)을 받아 처리합니다.
+- Each editor tab now renders an **Engine State** card.
+  - Sliders feed numeric params (line height, tempo, risk, etc.).
+  - Selects toggle enums (`trap_side`, `counterpress`, `counterattack`).
+  - Checkboxes/text inputs handle booleans/strings (`second_phase_ready`, `rest_def_shape`).
+  - Guidelines list mirrors the defaults from `engineParams.ts`.
+- Changes propagate immediately via `updateActiveTactic` → `engineStatePresets` → preview.
+- When a preset is missing, the editor lazily seeds it from `DEFAULT_ENGINE_STATE_PRESETS` (keeping legacy tactics working).
+
+## 5. How Tactic Data Hits the Engine
+
+1. `Tactic` (UI) → `normalizeTactic` for legacy support → persisted to bridge/localStorage.
+2. `tacticToEngineParams` clones base defaults, folds in state presets, and attaches `state_presets` map.
+3. Engine receives `Cmd::tactics_set`, clamps values, and stores them on `World` + `TeamTacticRuntime`.
+4. Every tick: `determine_game_phases()` → `update_tactical_targets()` updates easing targets → AI pulls `world.tactical_profile_for_player()`.
+
+## 6. Working in Rust Engine
+
+Core entry points when touching tactics/AI:
+
+- `state.rs`: `TeamTacticRuntime`, easing constant (`TACTIC_EASING_ALPHA`), helpers to expose current profile.
+- `tactics.rs`: default presets, serde types, `ResolvedTactics::apply_params`, `ease_towards`.
+- `ai/fsm.rs`: passes `ResolvedTactics` into every action.
+- `ai/actions/*`: each action now reads from `context.tactics` (e.g., defensive press intensity, dribble tempo).
+
+Prefer running `cargo fmt --manifest-path packages/engine/Cargo.toml` and `cargo check` before committing.
+
+## 7. Development Patterns & Tips
+
+- **Deep clone and normalise** whenever mutating `Tactic` (see `updateActiveTactic`).
+- When adding new params: update both TS (`engine_types.ts`, `engineParams.ts`) and Rust (`tactics.rs`, `ResolvedTactics`).
+- Keep numerical ranges consistent: UI clamps via metadata; engine clamps inside `StateParams::clamp` and `ResolvedTactics::apply_params`.
+- Guidelines live in `engineParams.ts` and are displayed automatically—modify there to keep UI/engine in sync.
+- Bookkeeping: `packages/engine/pkg/` output is regenerated by `wasm-pack` inside the build scripts; don’t hand-edit.
+
+## 8. Testing Checklist
+
+- UI: run `npm run dev` and manually tweak engine-state sliders; confirm values persist across reload (localStorage).
+- Engine: `cargo check` (fast) or `cargo test` (when unit tests exist) under `packages/engine`.
+- Viewer: load a tactic with the viewer, confirm tactics hot-reload by calling `viewerApp.restartPlayerSystem()`.
+
+## 9. Useful References
+
+- `packages/tactics/src/state/tacticsStore.ts`: central store actions (`updateActiveTactic`, `saveTactic`).
+- `packages/tactics/src/components/PitchDisplay.ts`: uses `Tactic` to render on-screen formations.
+- `packages/viewer-3d/src/app/viewerApp.ts`: how engine commands are pushed when presets change.
+- `packages/tactics/src/presets/`: sample tactics for smoke testing new logic.
+
+## 10. Pending Improvements
+
+- Add typed form validation + dirty-state warnings in the editor.
+- Expand engine AI actions to respond to `counterattack` modes (e.g., sprint lanes).
+- Hook up automated tests (`ts-vitest`, Rust integration tests) once TypeScript toolchain is in place.
+
+If something feels unclear, check git history around `tacticToEngineParams` or `TeamTacticRuntime`; those commits usually explain intent. Happy shipping!
+
+---
+
+## (KO) FTO 전술 플랫폼 – 개발자 가이드
+
+### 1. 프로젝트 개요
+
+- **모노레포 구성**
+  - `packages/tactics`: 전술 에디터, 프리셋, 공용 모델이 담긴 TypeScript/Vite UI
+  - `packages/viewer-3d`: 전술/엔진 출력을 시각화하는 Three.js 뷰어
+  - `packages/engine`: 물리·AI·FSM 로직을 포함한 Rust WASM 엔진
+  - `packages/squad`: 선수 로스터 데모 유틸리티
+- **데이터 흐름**: UI에서 `Tactic` 수정 → `tacticToEngineParams`가 `EngineTactic`으로 변환 → 엔진이 상태별 프리셋을 적용 → FSM이 행동 결정
+
+### 2. 빠른 시작
+
+```
+npm install                                  # 의존성 설치
+npm run dev                                  # 전술 에디터 + 3D 뷰어 개발 서버
+cargo watch -x "build --target wasm32-unknown-unknown"   # 엔진 WASM 감시 빌드(선택)
+cargo check --manifest-path packages/engine/Cargo.toml    # 엔진 타입 체크
+npm install --save-dev typescript && npm run typecheck    # TS 타입 체크(tsc 설치 필요)
+```
+
+> 저장소에는 전역 `tsc`가 포함되어 있지 않습니다. TypeScript를 설치한 뒤 `npm run typecheck`를 실행하세요.
+
+### 3. 핵심 레이어
+
+| 레이어 | 주요 파일 | 설명 |
+| --- | --- | --- |
+| 도메인 모델 | `packages/tactics/src/models/tactic.ts`, `engineParams.ts` | `Tactic`에 `engineStatePresets` 포함 |
+| 번역 | `packages/tactics/src/utils/translator.ts` | UI 구조 → 엔진 파라미터 변환 |
+| 엔진 스키마 | `packages/engine/src/tactics.rs` | Rust 측 타입/프리셋/보간 로직 |
+| 런타임 상태 | `packages/engine/src/state.rs` | `TeamTacticRuntime`가 10틱 easing 적용 |
+| AI 동작 | `packages/engine/src/ai/**/*.rs` | FSM이 `ResolvedTactics`를 참조해 의사결정 |
+| UI | `packages/tactics/src/components/TacticsEditor.ts` | 상태별 슬라이더/셀렉트 + 가이드라인 노출 |
+
+### 4. 전술 에디터 사용
+
+- 각 탭에 **엔진 상태 카드**가 추가되어 모든 전술 파라미터를 실시간 조정 가능
+- 슬라이더: 라인 높이, 템포, 리스크 등 수치 값
+- 셀렉트: `trap_side`, `counterpress`, `counterattack` 등 열거형
+- 체크박스/텍스트: `second_phase_ready`, `rest_def_shape` 등 부울/문자열
+- 가이드라인은 `engineParams.ts` 기본 텍스트를 그대로 노출
+- 프리셋이 없으면 기본값으로 자동 초기화하여 구버전 전술 호환 유지
+
+### 5. 엔진 적용 과정
+
+1. UI에서 편집된 `Tactic` → `normalizeTactic`으로 구버전 호환
+2. `tacticToEngineParams`가 기본값 + 프리셋을 합쳐 `EngineTactic` 생성
+3. 엔진은 `Cmd::tactics_set`을 받아 클램프 후 `World`와 `TeamTacticRuntime`에 저장
+4. 매 틱 `determine_game_phases()` → `update_tactical_targets()`로 목표 상태 갱신, FSM은 현재 `ResolvedTactics` 조회
+
+### 6. Rust 엔진 작업 시 참고
+
+- `state.rs`: 런타임 easing 로직, 현재 전술 프로필 getter
+- `tactics.rs`: 기본 프리셋/serde/`ResolvedTactics`
+- `ai/` 모듈: 각 액션이 `context.tactics`를 읽어 강도/속도 조절
+- 변경 후 `cargo fmt`, `cargo check` 실행 권장
+
+### 7. 작업 팁
+
+- 객체 수정 시 항상 복제 후 `normalizeTactic` 호출 (`updateActiveTactic` 참고)
+- 파라미터 추가 시 TS/Rust 모두 동기화
+- 범위 검증은 UI/엔진 양쪽에서 동일하게 유지
+- `engineParams.ts`의 기본 값과 가이드라인을 수정하면 UI/엔진이 동시에 반영
+
+### 8. 테스트 체크리스트
+
+- UI: `npm run dev` 실행 후 엔진 상태 슬라이더를 수동 확인 (localStorage에 값 저장 확인)
+- 엔진: `cargo check --manifest-path packages/engine/Cargo.toml`
+- 뷰어: `viewerApp.restartPlayerSystem()` 호출로 전술 핫리로드 검증
+
+### 9. 참고 파일
+
+- `packages/tactics/src/state/tacticsStore.ts`
+- `packages/tactics/src/components/PitchDisplay.ts`
+- `packages/viewer-3d/src/app/viewerApp.ts`
+- `packages/tactics/src/presets/`
+
+### 10. 향후 작업 아이디어
+
+- 에디터 폼 검증/저장 경고 추가
+- `counterattack` 모드에 따른 AI 행동 확장
+- TS/Vitest·Rust 통합 테스트 구성
+
+궁금한 점이 생기면 `tacticToEngineParams` 또는 `TeamTacticRuntime` 관련 커밋을 살펴보세요. 즐거운 개발 되시길!

@@ -1,9 +1,9 @@
 use crate::params::{DT, PITCH_H, PITCH_W, R_BODY};
 use crate::player_data::get_baseline_player;
-use crate::tactics::Tactics;
+use crate::tactics::{ResolvedTactics, Tactics};
 use crate::types::{
-    BallMode, Foot, MatchPhase, PlayerCommandState, PlayerParams, PlayerRole, RoleOverrideState,
-    TeamId, Vec2,
+    BallMode, Foot, GamePhase, MatchPhase, PlayerCommandState, PlayerParams, PlayerRole,
+    RoleOverrideState, TeamId, Vec2,
 };
 use serde::Serialize;
 
@@ -11,6 +11,8 @@ use serde::Serialize;
 pub const N_PLAYERS: usize = 22;
 pub const N_PER_TEAM: usize = 11;
 pub const N_TEAMS: usize = 2;
+
+const TACTIC_EASING_ALPHA: f32 = 0.35;
 
 /// Represents a player's base attributes on a 1-20 scale.
 /// These are the "raw stats" that are used to compute the final physics parameters.
@@ -39,6 +41,53 @@ pub struct PlayerInput20 {
     pub weak_foot: u8,    // Weak foot ability (1-5 scale)
 }
 
+#[derive(Clone, Debug)]
+pub struct TeamTacticRuntime {
+    current: ResolvedTactics,
+    target: ResolvedTactics,
+    target_phase: GamePhase,
+}
+
+impl TeamTacticRuntime {
+    fn new(base: &Tactics, phase: GamePhase) -> Self {
+        let target = ResolvedTactics::from_phase(base, phase);
+        Self {
+            current: target.clone(),
+            target,
+            target_phase: phase,
+        }
+    }
+
+    fn reset(&mut self, base: &Tactics, phase: GamePhase) {
+        let resolved = ResolvedTactics::from_phase(base, phase);
+        self.current = resolved.clone();
+        self.target = resolved;
+        self.target_phase = phase;
+    }
+
+    fn set_target(&mut self, base: &Tactics, phase: GamePhase) {
+        if phase != self.target_phase {
+            self.target_phase = phase;
+        }
+        self.target = ResolvedTactics::from_phase(base, phase);
+    }
+
+    fn step(&mut self) {
+        self.current.ease_towards(&self.target, TACTIC_EASING_ALPHA);
+    }
+
+    fn current(&self) -> &ResolvedTactics {
+        &self.current
+    }
+}
+
+impl Default for TeamTacticRuntime {
+    fn default() -> Self {
+        let base = Tactics::default();
+        TeamTacticRuntime::new(&base, GamePhase::default())
+    }
+}
+
 /// The main struct holding the entire state of the simulation world.
 #[repr(C)]
 pub struct World {
@@ -59,12 +108,14 @@ pub struct World {
 
     // --- Match State ---
     pub match_phase: MatchPhase, // Current phase of the match (e.g., Kickoff, InPlay).
+    pub game_phases: [GamePhase; N_TEAMS], // Current tactical phase for each team.
     pub home_score: u16,
     pub away_score: u16,
     pub possession: i8, // Which team has possession (-1 for none, 0 for Home, 1 for Away).
 
     // --- Team and Player Data ---
     pub tactics: [Tactics; N_TEAMS], // Tactical settings for each team.
+    pub tactic_runtime: [TeamTacticRuntime; N_TEAMS],
 
     pub p_team: [u8; N_PLAYERS],             // Team ID for each player.
     pub p_role: [PlayerRole; N_PLAYERS],     // Tactical role for each player.
@@ -106,10 +157,12 @@ impl World {
             bmode: BallMode::Ground.as_u8(),
             bspin: 0.0,
             match_phase: MatchPhase::PreKickoff,
+            game_phases: [GamePhase::default(); N_TEAMS],
             home_score: 0,
             away_score: 0,
             possession: TeamId::Home.index() as i8,
             tactics: std::array::from_fn(|_| Tactics::default()),
+            tactic_runtime: std::array::from_fn(|_| TeamTacticRuntime::default()),
             p_team: [0; N_PLAYERS],
             p_role: [PlayerRole::default(); N_PLAYERS],
             p_params: [PlayerParams::default(); N_PLAYERS],
@@ -125,6 +178,7 @@ impl World {
         };
         world.initialize_params();
         world.reset_kickoff();
+        world.initialize_tactic_runtime();
         world
     }
 
@@ -135,6 +189,13 @@ impl World {
             let slot = idx % N_PER_TEAM;
             let input = get_baseline_player(slot, team_idx);
             self.p_params[idx] = compute_params_20(&input);
+        }
+    }
+
+    fn initialize_tactic_runtime(&mut self) {
+        for team_idx in 0..N_TEAMS {
+            let phase = self.game_phases[team_idx];
+            self.tactic_runtime[team_idx].reset(&self.tactics[team_idx], phase);
         }
     }
 
@@ -157,6 +218,33 @@ impl World {
             self.pcommand[i] = PlayerCommandState::default();
         }
         self.arrange_default_positions();
+        self.initialize_tactic_runtime();
+    }
+
+    pub fn apply_tactics(&mut self, team_idx: usize, tactics: Tactics) {
+        if team_idx >= N_TEAMS {
+            return;
+        }
+        self.tactics[team_idx] = tactics;
+        let phase = self.game_phases[team_idx];
+        self.tactic_runtime[team_idx].reset(&self.tactics[team_idx], phase);
+    }
+
+    pub fn update_tactical_targets(&mut self, phases: &[GamePhase; N_TEAMS]) {
+        for team_idx in 0..N_TEAMS {
+            let phase = phases[team_idx];
+            self.tactic_runtime[team_idx].set_target(&self.tactics[team_idx], phase);
+            self.tactic_runtime[team_idx].step();
+        }
+    }
+
+    pub fn tactical_profile(&self, team: TeamId) -> &ResolvedTactics {
+        self.tactic_runtime[team.index()].current()
+    }
+
+    pub fn tactical_profile_for_player(&self, player_idx: usize) -> &ResolvedTactics {
+        let team_idx = self.p_team[player_idx] as usize;
+        self.tactic_runtime[team_idx].current()
     }
 
     /// Arranges players in a default formation.

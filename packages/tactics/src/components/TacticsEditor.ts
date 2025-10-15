@@ -1,5 +1,20 @@
 
-import type { PlayerInstruction, Tactic } from '../models/tactic';
+import type {
+  InPossessionTactic,
+  PlayerInstruction,
+  Tactic,
+  PhaseSetting,
+  InPossessionStyle,
+  OutOfPossessionStyle,
+} from '../models/tactic';
+import type {
+  EngineCounterAttack,
+  EngineCounterPress,
+  EngineStateParams,
+  EngineTacticStateKey,
+  EngineTrapSide,
+} from '../models/engineParams';
+import { createDefaultEngineStatePresets } from '../models/engineParams';
 import { FORMATION_PRESETS, FORMATION_PRESET_VALUES } from '../presets/formationPresets';
 import { computeRoleLabelsForPhase } from '../utils/roleLabels';
 import type { TacticsStore } from '../state/tacticsStore';
@@ -59,6 +74,32 @@ const TACTICS_EDITOR_STYLES = `
   background: #3a76f7;
   border-color: #3a76f7;
   color: #fff;
+}
+
+.fto-tactics-editor-panel .sub-tabs {
+    display: flex;
+    gap: 6px;
+    background: #222;
+    padding: 6px;
+    border-radius: 6px;
+}
+
+.fto-tactics-editor-panel .sub-tab {
+    flex: 1 1 auto;
+    border: 1px solid #444;
+    border-radius: 4px;
+    background: #333;
+    color: #ccc;
+    font-size: 12px;
+    padding: 6px 8px;
+    text-align: center;
+    cursor: pointer;
+}
+
+.fto-tactics-editor-panel .sub-tab.active {
+    background: #4a85ff;
+    border-color: #4a85ff;
+    color: #fff;
 }
 
 .fto-tactics-editor-panel .field-grid {
@@ -181,6 +222,89 @@ const TACTICS_EDITOR_STYLES = `
   font-size: 12px;
 }
 
+.engine-state-section {
+  border: 1px solid #444;
+  border-radius: 6px;
+  padding: 12px;
+  background: #1f1f1f;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.engine-state-section__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: #f0f0f0;
+}
+
+.engine-state-section__fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.engine-state-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.engine-state-field label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: #bbb;
+}
+
+.engine-state-field__value {
+  color: #fff;
+  font-weight: 600;
+}
+
+.engine-state-field input[type="range"] {
+  width: 100%;
+}
+
+.engine-state-field input[type="number"],
+.engine-state-field input[type="text"],
+.engine-state-field select {
+  width: 100%;
+  padding: 6px;
+  border-radius: 4px;
+  border: 1px solid #444;
+  background: #1c1c1c;
+  color: #f0f0f0;
+  font-size: 13px;
+}
+
+.engine-state-field__checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #ddd;
+}
+
+.engine-state-field__hint {
+  font-size: 11px;
+  color: #777;
+}
+
+.engine-state-section__guidelines {
+  margin: 0;
+  padding-left: 18px;
+  color: #999;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .fto-tactics-editor-panel input[type="text"] {
   width: 100%;
   padding: 8px;
@@ -225,36 +349,188 @@ export interface TacticsEditorOptions {
   tactic: Tactic;
 }
 
-type EditorTab = 'Attacking' | 'Deffending' | 'transition';
+type EditorTab = 'InPossession' | 'OutOfPossession' | 'Transitions' | 'SetPieces';
+type InPossessionPhase = keyof Tactic['inPossession'];
+type OutOfPossessionPhase = keyof Tactic['outOfPossession'];
+type SetPiecePhase = keyof Tactic['setPieces'];
 
 const PHASE_LABELS: Record<EditorTab, string> = {
-  Attacking: '공격',
-  Deffending: '수비',
-  transition: '전환',
+  InPossession: '인포제션',
+  OutOfPossession: '아웃오브포제션',
+  Transitions: '전환',
+  SetPieces: '세트피스',
 };
 
-const IN_POSSESSION_STYLE_OPTIONS = [
-  { value: 'default', label: '기본' },
-] as const;
+const IN_POSSESSION_PHASE_LABELS: Record<InPossessionPhase, string> = {
+    buildUp: '빌드업',
+    progression: '전개',
+    creation: '창출',
+};
 
-const OUT_OF_POSSESSION_STYLE_OPTIONS = [
-  { value: 'default', label: '기본' },
-] as const;
+const OUT_OF_POSSESSION_PHASE_LABELS: Record<OutOfPossessionPhase, string> = {
+    highBlock: '높은 블록',
+    midBlock: '중간 블록',
+    lowBlock: '낮은 블록',
+};
+
+const SET_PIECE_PHASE_LABELS: Record<SetPiecePhase, string> = {
+    attacking: '공격 세트피스',
+    defending: '수비 세트피스',
+};
 
 const TRANSITION_STYLE_OPTIONS = [
   { value: 'press_on_heavy_touch', label: '즉시 재압박' },
   { value: 'fall_back', label: '라인 유지' },
 ] as const;
 
+const ENGINE_STATE_DEFAULT_PRESETS = createDefaultEngineStatePresets();
+
+type EngineFieldType = 'slider' | 'number' | 'select' | 'text' | 'checkbox';
+
+interface EngineFieldConfig {
+  readonly key: keyof EngineStateParams;
+  readonly label: string;
+  readonly type: EngineFieldType;
+  readonly min?: number;
+  readonly max?: number;
+  readonly step?: number;
+  readonly options?: ReadonlyArray<{ value: string; label: string }>;
+  readonly help?: string;
+  readonly format?: (value: number) => string;
+}
+
+const TRAP_SIDE_OPTIONS: ReadonlyArray<{ value: EngineTrapSide; label: string }> = [
+  { value: 'auto', label: '자동' },
+  { value: 'left', label: '좌측' },
+  { value: 'center', label: '중앙' },
+  { value: 'right', label: '우측' },
+];
+
+const COUNTERPRESS_OPTIONS: ReadonlyArray<{ value: EngineCounterPress; label: string }> = [
+  { value: 'none', label: '없음' },
+  { value: 'contain', label: '유도' },
+  { value: 'hunt', label: '집중 압박' },
+];
+
+const COUNTERATTACK_OPTIONS: ReadonlyArray<{ value: EngineCounterAttack; label: string }> = [
+  { value: 'secure', label: '안정' },
+  { value: 'balanced', label: '균형' },
+  { value: 'fast', label: '속공' },
+];
+
+const MARKING_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
+  { value: 'zonal', label: '존' },
+  { value: 'man', label: '맨투맨' },
+  { value: 'zonal+2man', label: '혼합(2인)' },
+];
+
+const ENGINE_STATE_LABELS: Record<EngineTacticStateKey, string> = {
+  buildUp: '빌드업 상태 파라미터',
+  progression: '전개 상태 파라미터',
+  creation: '창출 상태 파라미터',
+  highBlock: '하이 블록',
+  midBlock: '미드 블록',
+  lowBlock: '로우 블록',
+  attackToDefense: '공격 → 수비 전환',
+  defenseToAttack: '수비 → 공격 전환',
+  setPlayAttack: '공격 세트피스',
+  setPlayDefense: '수비 세트피스',
+};
+
+const formatPercent = (value: number): string => `${Math.round(value * 100)}%`;
+const formatMeter = (value: number): string => `${value.toFixed(1)} m`;
+
+const IN_POSSESSION_ENGINE_FIELDS: EngineFieldConfig[] = [
+  { key: 'line_att', label: '라인 높이', type: 'slider', min: 0, max: 1, step: 0.01, format: formatPercent },
+  { key: 'width', label: '팀 폭', type: 'slider', min: 0, max: 1, step: 0.01, format: formatPercent },
+  { key: 'tempo', label: '템포', type: 'slider', min: 0, max: 1, step: 0.01, format: formatPercent },
+  { key: 'direct', label: '직선성', type: 'slider', min: 0, max: 1, step: 0.01, format: formatPercent },
+  { key: 'risk', label: '리스크', type: 'slider', min: 0, max: 1, step: 0.01, format: formatPercent },
+  { key: 'support_d', label: '지원 거리', type: 'slider', min: 6, max: 18, step: 0.5, format: formatMeter },
+  { key: 'gk_build', label: 'GK 빌드업 개입', type: 'slider', min: 0, max: 1, step: 0.01, format: formatPercent },
+  { key: 'trap_side', label: '트랩 방향', type: 'select', options: TRAP_SIDE_OPTIONS },
+  { key: 'counterpress', label: '역압박', type: 'select', options: COUNTERPRESS_OPTIONS },
+  { key: 'counterattack', label: '역습 모드', type: 'select', options: COUNTERATTACK_OPTIONS },
+  { key: 'rest_def_shape', label: '잔여 수비 구조', type: 'text' },
+];
+
+const OUT_OF_POSSESSION_ENGINE_FIELDS: EngineFieldConfig[] = [
+  { key: 'block_def', label: '블록 라인', type: 'slider', min: 0, max: 1, step: 0.01, format: formatPercent },
+  { key: 'width', label: '팀 폭', type: 'slider', min: 0, max: 1, step: 0.01, format: formatPercent },
+  { key: 'press_int', label: '압박 강도', type: 'slider', min: 0, max: 1, step: 0.01, format: formatPercent },
+  { key: 'compact_v', label: '세로 컴팩트', type: 'slider', min: 8, max: 24, step: 1, format: formatMeter },
+  { key: 'compact_h', label: '가로 컴팩트', type: 'slider', min: 0, max: 1, step: 0.01, format: formatPercent },
+  { key: 'support_d', label: '지원 거리', type: 'slider', min: 6, max: 18, step: 0.5, format: formatMeter },
+  { key: 'trap_side', label: '트랩 방향', type: 'select', options: TRAP_SIDE_OPTIONS },
+  { key: 'counterpress', label: '역압박', type: 'select', options: COUNTERPRESS_OPTIONS },
+  { key: 'counterattack', label: '역습 모드', type: 'select', options: COUNTERATTACK_OPTIONS },
+];
+
+const TRANSITION_ENGINE_FIELDS: Record<'attackToDefense' | 'defenseToAttack', EngineFieldConfig[]> = {
+  attackToDefense: [
+    { key: 'press_int', label: '재압박 강도', type: 'slider', min: 0, max: 1, step: 0.01, format: formatPercent },
+    { key: 'trap_side', label: '트랩 방향', type: 'select', options: TRAP_SIDE_OPTIONS },
+    { key: 'counterpress', label: '역압박', type: 'select', options: COUNTERPRESS_OPTIONS },
+    { key: 'compact_v', label: '세로 컴팩트', type: 'slider', min: 8, max: 24, step: 1, format: formatMeter },
+    { key: 'compact_h', label: '가로 컴팩트', type: 'slider', min: 0, max: 1, step: 0.01, format: formatPercent },
+    { key: 'support_d', label: '지원 거리', type: 'slider', min: 6, max: 18, step: 0.5, format: formatMeter },
+  ],
+  defenseToAttack: [
+    { key: 'tempo', label: '템포', type: 'slider', min: 0, max: 1, step: 0.01, format: formatPercent },
+    { key: 'direct', label: '직선성', type: 'slider', min: 0, max: 1, step: 0.01, format: formatPercent },
+    { key: 'risk', label: '리스크', type: 'slider', min: 0, max: 1, step: 0.01, format: formatPercent },
+    { key: 'width', label: '팀 폭', type: 'slider', min: 0, max: 1, step: 0.01, format: formatPercent },
+    { key: 'counterattack', label: '역습 모드', type: 'select', options: COUNTERATTACK_OPTIONS },
+    { key: 'support_d', label: '지원 거리', type: 'slider', min: 6, max: 18, step: 0.5, format: formatMeter },
+    { key: 'rest_def_shape', label: '잔여 수비 구조', type: 'text' },
+  ],
+};
+
+const SET_PIECE_ATTACK_FIELDS: EngineFieldConfig[] = [
+  { key: 'risk', label: '리스크', type: 'slider', min: 0, max: 1, step: 0.01, format: formatPercent },
+  { key: 'tempo', label: '템포', type: 'slider', min: 0, max: 1, step: 0.01, format: formatPercent },
+  { key: 'box_runs', label: '박스 침투 인원', type: 'number', min: 0, max: 6, step: 1 },
+  { key: 'second_phase_ready', label: '세컨 페이즈 준비', type: 'checkbox' },
+  { key: 'rest_def_shape', label: '잔여 수비 구조', type: 'text' },
+];
+
+const SET_PIECE_DEFENSE_FIELDS: EngineFieldConfig[] = [
+  { key: 'compact_v', label: '세로 컴팩트', type: 'slider', min: 6, max: 20, step: 1, format: formatMeter },
+  { key: 'compact_h', label: '가로 컴팩트', type: 'slider', min: 0, max: 1, step: 0.01, format: formatPercent },
+  { key: 'line_att', label: '라인 높이', type: 'slider', min: 0, max: 1, step: 0.01, format: formatPercent },
+  { key: 'marking', label: '마킹', type: 'select', options: MARKING_OPTIONS },
+  { key: 'blocker_on_keeper', label: '골키퍼 차단', type: 'checkbox' },
+  { key: 'counterattack', label: '역습 모드', type: 'select', options: COUNTERATTACK_OPTIONS },
+];
+
+const ENGINE_FIELD_CONFIG: Record<EngineTacticStateKey, EngineFieldConfig[]> = {
+  buildUp: IN_POSSESSION_ENGINE_FIELDS,
+  progression: IN_POSSESSION_ENGINE_FIELDS,
+  creation: IN_POSSESSION_ENGINE_FIELDS,
+  highBlock: OUT_OF_POSSESSION_ENGINE_FIELDS,
+  midBlock: OUT_OF_POSSESSION_ENGINE_FIELDS,
+  lowBlock: OUT_OF_POSSESSION_ENGINE_FIELDS,
+  attackToDefense: TRANSITION_ENGINE_FIELDS.attackToDefense,
+  defenseToAttack: TRANSITION_ENGINE_FIELDS.defenseToAttack,
+  setPlayAttack: SET_PIECE_ATTACK_FIELDS,
+  setPlayDefense: SET_PIECE_DEFENSE_FIELDS,
+};
+
 export class TacticsEditor {
   readonly #options: TacticsEditorOptions;
   #tactic: Tactic;
   #activeTab: EditorTab;
+  #activeInPossessionPhase: InPossessionPhase;
+  #activeOutOfPossessionPhase: OutOfPossessionPhase;
+  #activeSetPiecePhase: SetPiecePhase;
 
   constructor(options: TacticsEditorOptions) {
     this.#options = options;
     this.#tactic = options.tactic;
-    this.#activeTab = this.#options.store.snapshot.editorTab;
+    this.#activeTab = 'InPossession'; // Default tab
+    this.#activeInPossessionPhase = 'buildUp'; // Default sub-phase
+    this.#activeOutOfPossessionPhase = 'midBlock';
+    this.#activeSetPiecePhase = 'attacking';
     this.#ensureStyles();
     this.render();
   }
@@ -269,13 +545,6 @@ export class TacticsEditor {
   };
 
   render = (): void => {
-    const { displayMode, editorTab } = this.#options.store.snapshot;
-    if (editorTab !== this.#activeTab) {
-      this.#activeTab = editorTab;
-    } else if (this.#activeTab !== 'transition') {
-      this.#activeTab = displayMode;
-    }
-
     const activeContent = this.#renderContent(this.#activeTab);
     const directivesContent = this.#renderDirectivesSection();
     const safeLabel = this.#escapeHtml(this.#tactic.label);
@@ -284,9 +553,10 @@ export class TacticsEditor {
       <div class="fto-tactics-editor-panel">
         <h3>${safeLabel}</h3>
         <div class="mode-tabs">
-          ${this.#renderTabButton('Deffending')}
-          ${this.#renderTabButton('transition')}
-          ${this.#renderTabButton('Attacking')}
+          ${this.#renderTabButton('InPossession')}
+          ${this.#renderTabButton('OutOfPossession')}
+          ${this.#renderTabButton('Transitions')}
+          ${this.#renderTabButton('SetPieces')}
         </div>
         <div class="field-grid">
           ${activeContent}
@@ -305,62 +575,113 @@ export class TacticsEditor {
   };
 
   #renderContent = (tab: EditorTab): string => {
-    if (tab === 'transition') {
-      return this.#renderTransitionContent();
+    switch (tab) {
+      case 'InPossession':
+        return this.#renderInPossessionContent();
+      case 'OutOfPossession':
+        return this.#renderOutOfPossessionContent();
+      case 'Transitions':
+        return this.#renderTransitionContent();
+      case 'SetPieces':
+        return this.#renderSetPiecesContent();
+      default:
+        return '';
     }
-    return this.#renderPhaseContent(tab);
   };
 
-  #renderPhaseContent = (phase: 'Attacking' | 'Deffending'): string => {
-    const target = this.#tactic[phase];
-    const formationValue = this.#escapeHtml(target.formation);
-    const phaseSlug = phase.toLowerCase();
-    const presetSelectId = `formation-preset-select-${phaseSlug}`;
-    const formationInputId = `formation-input-${phaseSlug}`;
-    const styleSelectId = `style-select-${phaseSlug}`;
-    const hasPreset = FORMATION_PRESET_VALUES.has(target.formation);
-    const presetOptions = FORMATION_PRESETS
-      .map(preset => {
-        const isActive = preset.value === target.formation;
-        const valueAttr = this.#escapeHtml(preset.value);
-        const label = this.#escapeHtml(preset.label);
-        return `<option value="${valueAttr}" ${isActive ? 'selected' : ''}>${label}</option>`;
-      })
-      .join('');
-    const styleOptions = (phase === 'Attacking' ? IN_POSSESSION_STYLE_OPTIONS : OUT_OF_POSSESSION_STYLE_OPTIONS)
-      .map(option => `<option value="${option.value}" ${option.value === target.style ? 'selected' : ''}>${this.#escapeHtml(option.label)}</option>`)
-      .join('');
-    const customSelected = hasPreset ? '' : 'selected';
-    const selectionSummary = this.#renderSelectionSummary(phase);
+  #renderInPossessionContent = (): string => {
+    const phase = this.#activeInPossessionPhase;
+    const phaseData = this.#tactic.inPossession[phase];
+
+    const subTabs = (Object.keys(this.#tactic.inPossession) as InPossessionPhase[])
+        .map(p => `<button class="sub-tab ${p === phase ? 'active' : ''}" data-in-possession-phase="${p}">${IN_POSSESSION_PHASE_LABELS[p]}</button>`)
+        .join('');
 
     return `
-      <div class="control-group">
-        <label for="${presetSelectId}">포메이션 프리셋</label>
-        <select id="${presetSelectId}" data-role="formation-select" data-phase="${phase}">
-          <option value="__custom__" ${customSelected}>직접 입력</option>
-          ${presetOptions}
-        </select>
-      </div>
-      <div class="control-group">
-        <label for="${formationInputId}">포메이션</label>
-        <input type="text" id="${formationInputId}" data-role="formation-input" data-phase="${phase}" value="${formationValue}">
-      </div>
-      <div class="control-group">
-        <label for="${styleSelectId}">스타일</label>
-        <select id="${styleSelectId}" data-role="style-select" data-phase="${phase}">
-          ${styleOptions}
-        </select>
-      </div>
-      ${selectionSummary}
+        <div class="control-group">
+            <div class="sub-tabs">${subTabs}</div>
+        </div>
+        ${this.#renderSlider('defensiveLine', '수비 라인', phaseData.defensiveLine, 0, 1, 0.01, 'inPossession', phase)}
+        ${this.#renderSlider('width', '공격 폭', phaseData.width, 0, 1, 0.01, 'inPossession', phase)}
+        ${this.#renderSlider('pressingIntensity', '압박 강도', phaseData.pressingIntensity, 0, 1, 0.01, 'inPossession', phase)}
+        ${this.#renderEngineStateSection(this.#engineKeyForInPossession(phase))}
+        ${this.#renderSelectionSummary('inPossession', phase)}
     `;
   };
 
-  #getSlotLabelMap = (phase: 'Attacking' | 'Deffending'): Map<number, string> => {
-    const data = this.#tactic[phase];
+  #renderOutOfPossessionContent = (): string => {
+    const phase = this.#activeOutOfPossessionPhase;
+    const phaseData = this.#tactic.outOfPossession[phase];
+
+    const subTabs = (Object.keys(this.#tactic.outOfPossession) as OutOfPossessionPhase[])
+        .map(p => `<button class="sub-tab ${p === phase ? 'active' : ''}" data-out-of-possession-phase="${p}">${OUT_OF_POSSESSION_PHASE_LABELS[p]}</button>`)
+        .join('');
+
+    return `
+        <div class="control-group">
+            <div class="sub-tabs">${subTabs}</div>
+        </div>
+        ${this.#renderSlider('defensiveLine', '수비 라인', phaseData.defensiveLine, 0, 1, 0.01, 'outOfPossession', phase)}
+        ${this.#renderSlider('width', '수비 폭', phaseData.width, 0, 1, 0.01, 'outOfPossession', phase)}
+        ${this.#renderSlider('pressingIntensity', '압박 강도', phaseData.pressingIntensity, 0, 1, 0.01, 'outOfPossession', phase)}
+        ${this.#renderEngineStateSection(this.#engineKeyForOutOfPossession(phase))}
+        ${this.#renderSelectionSummary('outOfPossession', phase)}
+    `;
+  };
+
+  #renderSetPiecesContent = (): string => {
+    const phase = this.#activeSetPiecePhase;
+    const phaseData = this.#tactic.setPieces[phase];
+
+    const subTabs = (Object.keys(this.#tactic.setPieces) as SetPiecePhase[])
+        .map(p => `<button class="sub-tab ${p === phase ? 'active' : ''}" data-set-piece-phase="${p}">${SET_PIECE_PHASE_LABELS[p]}</button>`)
+        .join('');
+
+    return `
+        <div class="control-group">
+            <div class="sub-tabs">${subTabs}</div>
+        </div>
+        ${this.#renderSlider('defensiveLine', '수비 라인', phaseData.defensiveLine, 0, 1, 0.01, 'setPieces', phase)}
+        ${this.#renderSlider('width', '폭', phaseData.width, 0, 1, 0.01, 'setPieces', phase)}
+        ${this.#renderSlider('pressingIntensity', '압박 강도', phaseData.pressingIntensity, 0, 1, 0.01, 'setPieces', phase)}
+        ${this.#renderEngineStateSection(this.#engineKeyForSetPiece(phase))}
+    `;
+  };
+
+  #renderSlider = (id: string, label: string, value: number, min: number, max: number, step: number, majorPhase: 'inPossession' | 'outOfPossession' | 'setPieces', minorPhase: string): string => {
+    return `
+        <div class="control-group">
+            <label for="slider-${id}-${minorPhase}">${label}: ${value.toFixed(2)}</label>
+            <input 
+                type="range" 
+                id="slider-${id}-${minorPhase}" 
+                min="${min}" 
+                max="${max}" 
+                step="${step}" 
+                value="${value}"
+                data-role="slider"
+                data-major-phase="${majorPhase}"
+                data-minor-phase="${minorPhase}"
+                data-property="${id}"
+            />
+        </div>
+    `;
+  }
+
+  #getSlotLabelMap = (majorPhase: 'inPossession' | 'outOfPossession', minorPhase: keyof Tactic['inPossession'] | keyof Tactic['outOfPossession']): Map<number, string> => {
+    let data;
+    switch (majorPhase) {
+        case 'inPossession':
+            data = this.#tactic.inPossession[minorPhase as keyof Tactic['inPossession']];
+            break;
+        case 'outOfPossession':
+            data = this.#tactic.outOfPossession[minorPhase as keyof Tactic['outOfPossession']];
+            break;
+    }
     return computeRoleLabelsForPhase(data.formation, data.customFormation);
   };
 
-  #renderSelectionSummary = (phase: 'Attacking' | 'Deffending'): string => {
+  #renderSelectionSummary = (majorPhase: 'inPossession' | 'outOfPossession', minorPhase: keyof Tactic['inPossession'] | keyof Tactic['outOfPossession']): string => {
     const raw = this.#tactic.playerSelection;
     const selection = Array.isArray(raw) ? raw : [];
     if (selection.length === 0) {
@@ -372,7 +693,7 @@ export class TacticsEditor {
       `;
     }
 
-    const labelMap = this.#getSlotLabelMap(phase);
+    const labelMap = this.#getSlotLabelMap(majorPhase, minorPhase);
     const items = selection
       .slice()
       .sort((a, b) => a.slotIndex - b.slotIndex)
@@ -390,6 +711,216 @@ export class TacticsEditor {
         <ul class="selection-summary__list">${items}</ul>
       </div>
     `;
+  };
+
+  #renderEngineStateSection = (stateKey: EngineTacticStateKey): string => {
+    const fields = ENGINE_FIELD_CONFIG[stateKey] ?? [];
+    if (fields.length === 0) return '';
+
+    const preset = this.#tactic.engineStatePresets?.[stateKey];
+    const guidelines = (preset?.guidelines?.length ? preset?.guidelines : ENGINE_STATE_DEFAULT_PRESETS[stateKey]?.guidelines) ?? [];
+    const fieldMarkup = fields.map(field => this.#renderEngineField(stateKey, field)).join('');
+    const guidelinesMarkup = guidelines.length
+      ? `<ul class="engine-state-section__guidelines">${guidelines
+          .map(line => `<li>${this.#escapeHtml(line)}</li>`)
+          .join('')}</ul>`
+      : '';
+
+    return `
+      <div class="engine-state-section" data-engine-state="${stateKey}">
+        <div class="engine-state-section__header">${ENGINE_STATE_LABELS[stateKey] ?? stateKey}</div>
+        <div class="engine-state-section__fields">
+          ${fieldMarkup}
+        </div>
+        ${guidelinesMarkup}
+      </div>
+    `;
+  };
+
+  #renderEngineField = (stateKey: EngineTacticStateKey, field: EngineFieldConfig): string => {
+    const raw = this.#getEngineParamValue(stateKey, field.key);
+    const defaultRaw = ENGINE_STATE_DEFAULT_PRESETS[stateKey]?.params?.[field.key];
+    const inputId = `engine-${stateKey}-${String(field.key)}`;
+
+    if (field.type === 'slider') {
+      const fallback = typeof defaultRaw === 'number' ? defaultRaw : field.min ?? 0;
+      const numeric = typeof raw === 'number' && Number.isFinite(raw) ? raw : fallback;
+      const clamped = this.#clampEngineNumber(numeric, field);
+      const display = field.format ? field.format(clamped) : clamped.toFixed(field.step && field.step < 1 ? 2 : 0);
+      return `
+        <div class="engine-state-field">
+          <label for="${inputId}"><span>${field.label}</span><span class="engine-state-field__value">${display}</span></label>
+          <input
+            type="range"
+            id="${inputId}"
+            min="${field.min ?? 0}"
+            max="${field.max ?? 1}"
+            step="${field.step ?? 0.01}"
+            value="${clamped}"
+            data-role="engine-range"
+            data-engine-state-key="${stateKey}"
+            data-engine-param="${String(field.key)}"
+          />
+          ${field.help ? `<div class="engine-state-field__hint">${this.#escapeHtml(field.help)}</div>` : ''}
+        </div>
+      `;
+    }
+
+    if (field.type === 'number') {
+      const fallback = typeof defaultRaw === 'number' ? defaultRaw : field.min ?? 0;
+      const numeric = typeof raw === 'number' && Number.isFinite(raw) ? raw : fallback;
+      return `
+        <div class="engine-state-field">
+          <label for="${inputId}">${field.label}</label>
+          <input
+            type="number"
+            id="${inputId}"
+            value="${numeric}"
+            ${field.min !== undefined ? `min="${field.min}"` : ''}
+            ${field.max !== undefined ? `max="${field.max}"` : ''}
+            ${field.step !== undefined ? `step="${field.step}"` : ''}
+            data-role="engine-number"
+            data-engine-state-key="${stateKey}"
+            data-engine-param="${String(field.key)}"
+          />
+          ${field.help ? `<div class="engine-state-field__hint">${this.#escapeHtml(field.help)}</div>` : ''}
+        </div>
+      `;
+    }
+
+    if (field.type === 'select') {
+      const options = field.options ?? [];
+      const fallback = typeof defaultRaw === 'string' ? defaultRaw : options[0]?.value ?? '';
+      const current = typeof raw === 'string' ? raw : fallback;
+      const optionsMarkup = options
+        .map(option => `<option value="${option.value}" ${option.value === current ? 'selected' : ''}>${this.#escapeHtml(option.label)}</option>`)
+        .join('');
+      return `
+        <div class="engine-state-field">
+          <label for="${inputId}">${field.label}</label>
+          <select
+            id="${inputId}"
+            data-role="engine-select"
+            data-engine-state-key="${stateKey}"
+            data-engine-param="${String(field.key)}"
+          >
+            ${optionsMarkup}
+          </select>
+        </div>
+      `;
+    }
+
+    if (field.type === 'text') {
+      const fallback = typeof defaultRaw === 'string' ? defaultRaw : '';
+      const value = typeof raw === 'string' ? raw : fallback;
+      return `
+        <div class="engine-state-field">
+          <label for="${inputId}">${field.label}</label>
+          <input
+            type="text"
+            id="${inputId}"
+            value="${this.#escapeHtml(value)}"
+            data-role="engine-text"
+            data-engine-state-key="${stateKey}"
+            data-engine-param="${String(field.key)}"
+          />
+        </div>
+      `;
+    }
+
+    // checkbox
+    const fallback = typeof defaultRaw === 'boolean' ? defaultRaw : false;
+    const checked = typeof raw === 'boolean' ? raw : fallback;
+    return `
+      <div class="engine-state-field">
+        <label class="engine-state-field__checkbox">
+          <input
+            type="checkbox"
+            id="${inputId}"
+            ${checked ? 'checked' : ''}
+            data-role="engine-toggle"
+            data-engine-state-key="${stateKey}"
+            data-engine-param="${String(field.key)}"
+          />
+          <span>${field.label}</span>
+        </label>
+      </div>
+    `;
+  };
+
+  #getEngineParamValue = (stateKey: EngineTacticStateKey, key: keyof EngineStateParams): unknown => {
+    const preset = this.#tactic.engineStatePresets?.[stateKey];
+    if (preset && preset.params && Object.prototype.hasOwnProperty.call(preset.params, key)) {
+      return (preset.params as Record<string, unknown>)[key];
+    }
+    const fallback = ENGINE_STATE_DEFAULT_PRESETS[stateKey]?.params;
+    return fallback ? (fallback as Record<string, unknown>)[key] : undefined;
+  };
+
+  #engineKeyForInPossession = (phase: InPossessionPhase): EngineTacticStateKey => {
+    switch (phase) {
+      case 'progression':
+        return 'progression';
+      case 'creation':
+        return 'creation';
+      case 'buildUp':
+      default:
+        return 'buildUp';
+    }
+  };
+
+  #engineKeyForOutOfPossession = (phase: OutOfPossessionPhase): EngineTacticStateKey => {
+    switch (phase) {
+      case 'highBlock':
+        return 'highBlock';
+      case 'lowBlock':
+        return 'lowBlock';
+      case 'midBlock':
+      default:
+        return 'midBlock';
+    }
+  };
+
+  #engineKeyForSetPiece = (phase: SetPiecePhase): EngineTacticStateKey => {
+    return phase === 'attacking' ? 'setPlayAttack' : 'setPlayDefense';
+  };
+
+  #getEngineFieldConfig = (stateKey: EngineTacticStateKey, param: keyof EngineStateParams): EngineFieldConfig | undefined => {
+    const fields = ENGINE_FIELD_CONFIG[stateKey] ?? [];
+    return fields.find(field => field.key === param);
+  };
+
+  #clampEngineNumber = (value: number, field: EngineFieldConfig): number => {
+    if (!Number.isFinite(value)) return field.min ?? 0;
+    let result = value;
+    if (field.min !== undefined) {
+      result = Math.max(result, field.min);
+    }
+    if (field.max !== undefined) {
+      result = Math.min(result, field.max);
+    }
+    return result;
+  };
+
+  #ensureEnginePreset = (draft: Tactic, stateKey: EngineTacticStateKey) => {
+    if (!draft.engineStatePresets) {
+      draft.engineStatePresets = createDefaultEngineStatePresets();
+    }
+    if (!draft.engineStatePresets[stateKey]) {
+      const defaults = createDefaultEngineStatePresets();
+      draft.engineStatePresets[stateKey] = defaults[stateKey];
+    }
+    return draft.engineStatePresets[stateKey];
+  };
+
+  #updateEngineParam = (stateKey: EngineTacticStateKey, param: keyof EngineStateParams, value: unknown): void => {
+    this.#updateTactic(draft => {
+      const preset = this.#ensureEnginePreset(draft, stateKey);
+      if (!preset.params) {
+        preset.params = {};
+      }
+      (preset.params as Record<string, unknown>)[param as string] = value as unknown;
+    });
   };
 
   #renderDirectivesSection = (): string => {
@@ -505,7 +1036,7 @@ export class TacticsEditor {
   };
 
   #renderTransitionContent = (): string => {
-    const { on_loss, on_win } = this.#tactic.transition;
+    const { on_loss, on_win } = this.#tactic.transitions;
     const lossOptions = this.#renderTransitionOptions(on_loss);
     const winOptions = this.#renderTransitionOptions(on_win);
 
@@ -522,6 +1053,8 @@ export class TacticsEditor {
           ${winOptions}
         </select>
       </div>
+      ${this.#renderEngineStateSection('attackToDefense')}
+      ${this.#renderEngineStateSection('defenseToAttack')}
     `;
   };
 
@@ -536,16 +1069,40 @@ export class TacticsEditor {
       btn.addEventListener('click', this.#handleTabClick);
     });
 
-    this.#options.mount.querySelectorAll<HTMLInputElement>('[data-role="formation-input"]').forEach(input => {
-      input.addEventListener('change', this.#handleFormationChange);
+    this.#options.mount.querySelectorAll<HTMLElement>('[data-in-possession-phase]').forEach(btn => {
+        btn.addEventListener('click', this.#handleInPossessionPhaseClick);
     });
 
-    this.#options.mount.querySelectorAll<HTMLSelectElement>('[data-role="formation-select"]').forEach(select => {
-      select.addEventListener('change', this.#handleFormationPresetChange);
+    this.#options.mount.querySelectorAll<HTMLElement>('[data-out-of-possession-phase]').forEach(btn => {
+        btn.addEventListener('click', this.#handleOutOfPossessionPhaseClick);
     });
 
-    this.#options.mount.querySelectorAll<HTMLSelectElement>('[data-role="style-select"]').forEach(select => {
-      select.addEventListener('change', this.#handleStyleChange);
+    this.#options.mount.querySelectorAll<HTMLElement>('[data-set-piece-phase]').forEach(btn => {
+        btn.addEventListener('click', this.#handleSetPiecePhaseClick);
+    });
+
+    this.#options.mount.querySelectorAll<HTMLInputElement>('[data-role="slider"]').forEach(input => {
+        input.addEventListener('input', this.#handleSliderChange);
+    });
+
+    this.#options.mount.querySelectorAll<HTMLInputElement>('[data-role="engine-range"]').forEach(input => {
+      input.addEventListener('input', this.#handleEngineRangeInput);
+    });
+
+    this.#options.mount.querySelectorAll<HTMLInputElement>('[data-role="engine-number"]').forEach(input => {
+      input.addEventListener('change', this.#handleEngineNumberChange);
+    });
+
+    this.#options.mount.querySelectorAll<HTMLSelectElement>('[data-role="engine-select"]').forEach(select => {
+      select.addEventListener('change', this.#handleEngineSelectChange);
+    });
+
+    this.#options.mount.querySelectorAll<HTMLInputElement>('[data-role="engine-toggle"]').forEach(input => {
+      input.addEventListener('change', this.#handleEngineToggleChange);
+    });
+
+    this.#options.mount.querySelectorAll<HTMLInputElement>('[data-role="engine-text"]').forEach(input => {
+      input.addEventListener('change', this.#handleEngineTextChange);
     });
 
     this.#options.mount.querySelector('[data-role="transition-loss"]')?.addEventListener('change', this.#handleTransitionLossChange);
@@ -811,7 +1368,126 @@ export class TacticsEditor {
     }
 
     this.#activeTab = tab;
-    this.#options.store.setEditorTab(tab);
+    this.render();
+  };
+
+  #handleInPossessionPhaseClick = (event: Event): void => {
+    const target = event.currentTarget as HTMLElement | null;
+    const phase = target?.dataset.inPossessionPhase as InPossessionPhase | undefined;
+    if (!phase || phase === this.#activeInPossessionPhase) {
+        return;
+    }
+    this.#activeInPossessionPhase = phase;
+    this.render();
+  };
+
+  #handleOutOfPossessionPhaseClick = (event: Event): void => {
+    const target = event.currentTarget as HTMLElement | null;
+    const phase = target?.dataset.outOfPossessionPhase as OutOfPossessionPhase | undefined;
+    if (!phase || phase === this.#activeOutOfPossessionPhase) {
+        return;
+    }
+    this.#activeOutOfPossessionPhase = phase;
+    this.render();
+  };
+
+  #handleSetPiecePhaseClick = (event: Event): void => {
+    const target = event.currentTarget as HTMLElement | null;
+    const phase = target?.dataset.setPiecePhase as SetPiecePhase | undefined;
+    if (!phase || phase === this.#activeSetPiecePhase) {
+        return;
+    }
+    this.#activeSetPiecePhase = phase;
+    this.render();
+  };
+
+  #handleSliderChange = (event: Event): void => {
+    const input = event.target as HTMLInputElement | null;
+    if (!input) return;
+
+    const majorPhase = input.dataset.majorPhase as 'inPossession' | 'outOfPossession' | 'setPieces';
+    const minorPhase = input.dataset.minorPhase as string;
+    const property = input.dataset.property as keyof PhaseSetting;
+    const value = Number.parseFloat(input.value);
+
+    if (!majorPhase || !minorPhase || !property || !Number.isFinite(value)) return;
+
+    this.#updateTactic(draft => {
+      let phase: PhaseSetting | undefined;
+      switch (majorPhase) {
+        case 'inPossession':
+          phase = draft.inPossession[minorPhase as InPossessionPhase];
+          break;
+        case 'outOfPossession':
+          phase = draft.outOfPossession[minorPhase as OutOfPossessionPhase];
+          break;
+        case 'setPieces':
+          phase = draft.setPieces[minorPhase as SetPiecePhase];
+          break;
+      }
+
+      if (phase && property in phase && typeof (phase as any)[property] === 'number') {
+        (phase as any)[property] = value;
+      }
+    });
+  };
+
+  #handleEngineRangeInput = (event: Event): void => {
+    const input = event.target as HTMLInputElement | null;
+    if (!input) return;
+    const stateKey = input.dataset.engineStateKey as EngineTacticStateKey | undefined;
+    const param = input.dataset.engineParam as keyof EngineStateParams | undefined;
+    if (!stateKey || !param) return;
+    const field = this.#getEngineFieldConfig(stateKey, param);
+    if (!field) return;
+    const value = Number.parseFloat(input.value);
+    if (!Number.isFinite(value)) return;
+    const clamped = this.#clampEngineNumber(value, field);
+    this.#updateEngineParam(stateKey, param, clamped);
+  };
+
+  #handleEngineNumberChange = (event: Event): void => {
+    const input = event.target as HTMLInputElement | null;
+    if (!input) return;
+    const stateKey = input.dataset.engineStateKey as EngineTacticStateKey | undefined;
+    const param = input.dataset.engineParam as keyof EngineStateParams | undefined;
+    if (!stateKey || !param) return;
+    const field = this.#getEngineFieldConfig(stateKey, param);
+    if (!field) return;
+    const value = Number.parseFloat(input.value);
+    if (!Number.isFinite(value)) return;
+    const clamped = this.#clampEngineNumber(value, field);
+    this.#updateEngineParam(stateKey, param, clamped);
+  };
+
+  #handleEngineSelectChange = (event: Event): void => {
+    const select = event.target as HTMLSelectElement | null;
+    if (!select) return;
+    const stateKey = select.dataset.engineStateKey as EngineTacticStateKey | undefined;
+    const param = select.dataset.engineParam as keyof EngineStateParams | undefined;
+    if (!stateKey || !param) return;
+    const value = select.value;
+    this.#updateEngineParam(stateKey, param, value);
+  };
+
+  #handleEngineToggleChange = (event: Event): void => {
+    const input = event.target as HTMLInputElement | null;
+    if (!input) return;
+    const stateKey = input.dataset.engineStateKey as EngineTacticStateKey | undefined;
+    const param = input.dataset.engineParam as keyof EngineStateParams | undefined;
+    if (!stateKey || !param) return;
+    const value = Boolean(input.checked);
+    this.#updateEngineParam(stateKey, param, value);
+  };
+
+  #handleEngineTextChange = (event: Event): void => {
+    const input = event.target as HTMLInputElement | null;
+    if (!input) return;
+    const stateKey = input.dataset.engineStateKey as EngineTacticStateKey | undefined;
+    const param = input.dataset.engineParam as keyof EngineStateParams | undefined;
+    if (!stateKey || !param) return;
+    const value = input.value.trim();
+    this.#updateEngineParam(stateKey, param, value);
   };
 
   #handleFormationChange = (event: Event): void => {
@@ -821,7 +1497,15 @@ export class TacticsEditor {
     if (!phase) return;
 
     this.#updateTactic(draft => {
-      draft[phase].formation = input.value;
+      if (phase === 'Attacking') {
+        (Object.keys(draft.inPossession) as (keyof Tactic['inPossession'])[]).forEach(key => {
+            draft.inPossession[key].formation = input.value;
+        });
+      } else if (phase === 'Deffending') {
+        (Object.keys(draft.outOfPossession) as (keyof Tactic['outOfPossession'])[]).forEach(key => {
+            draft.outOfPossession[key].formation = input.value;
+        });
+      }
     });
   };
 
@@ -845,8 +1529,17 @@ export class TacticsEditor {
     }
 
     this.#updateTactic(draft => {
-      draft[phase].formation = value;
-      draft[phase].customFormation = undefined;
+        if (phase === 'Attacking') {
+            (Object.keys(draft.inPossession) as (keyof Tactic['inPossession'])[]).forEach(key => {
+                draft.inPossession[key].formation = value;
+                draft.inPossession[key].customFormation = undefined;
+            });
+        } else if (phase === 'Deffending') {
+            (Object.keys(draft.outOfPossession) as (keyof Tactic['outOfPossession'])[]).forEach(key => {
+                draft.outOfPossession[key].formation = value;
+                draft.outOfPossession[key].customFormation = undefined;
+            });
+        }
     });
   };
 
@@ -857,7 +1550,17 @@ export class TacticsEditor {
     if (!phase) return;
 
     this.#updateTactic(draft => {
-      draft[phase].style = select.value as Tactic['Attacking']['style'];
+        if (phase === 'Attacking') {
+            const style = select.value as InPossessionStyle;
+            (Object.keys(draft.inPossession) as (keyof Tactic['inPossession'])[]).forEach(key => {
+                draft.inPossession[key].style = style;
+            });
+        } else if (phase === 'Deffending') {
+            const style = select.value as OutOfPossessionStyle;
+            (Object.keys(draft.outOfPossession) as (keyof Tactic['outOfPossession'])[]).forEach(key => {
+                draft.outOfPossession[key].style = style;
+            });
+        }
     });
   };
 
@@ -865,7 +1568,7 @@ export class TacticsEditor {
     const select = event.target as HTMLSelectElement | null;
     if (!select) return;
     this.#updateTactic(draft => {
-      draft.transition.on_loss = select.value as typeof draft.transition.on_loss;
+      draft.transitions.on_loss = select.value as typeof draft.transitions.on_loss;
     });
   };
 
@@ -873,7 +1576,7 @@ export class TacticsEditor {
     const select = event.target as HTMLSelectElement | null;
     if (!select) return;
     this.#updateTactic(draft => {
-      draft.transition.on_win = select.value as typeof draft.transition.on_win;
+      draft.transitions.on_win = select.value as typeof draft.transitions.on_win;
     });
   };
 
@@ -886,6 +1589,7 @@ export class TacticsEditor {
     mutate(next);
     this.#tactic = next;
     this.#options.store.updateActiveTactic(next);
+    this.render(); // Re-render after state change
   };
 
   #escapeHtml = (value: string): string => {

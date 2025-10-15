@@ -15,7 +15,10 @@ impl Action for OffTheBallAction {
 
     fn update(&mut self, context: &mut ActionContext) -> ActionUpdate {
         let nav = player_nav(context.perception.me.pos, context.perception.target_pos);
-        let desired_vel = make_move(&nav, crate::params::PLAYER_VMAX, 5.0, 0.7);
+        let tempo = context.tactics.tempo.clamp(0.0, 1.0);
+        let jog_threshold = 3.0 + (1.0 - tempo) * 4.0;
+        let jog_ratio = 0.3 + tempo * 0.7;
+        let desired_vel = make_move(&nav, crate::params::PLAYER_VMAX, jog_threshold, jog_ratio);
         ActionUpdate::Move(desired_vel)
     }
 

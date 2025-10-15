@@ -1,3 +1,14 @@
+import { createDefaultEngineStatePresets, normalizeEngineStatePresets } from './engineParams';
+import type { EngineStatePresetMap } from './engineParams';
+
+// 전술 국면별 공통 설정
+export interface PhaseSetting {
+  defensiveLine: number; // 0-1 (0=deep, 1=high)
+  width: number; // 0-1 (0=narrow, 1=wide)
+  pressingIntensity: number; // 0-1
+  // 추가적인 공통 슬라이더 값들을 여기에 정의할 수 있습니다.
+}
+
 // 공격, 수비, 전환 시 스타일 정의
 export type InPossessionStyle = 'default'; // 향후 '긴 패스 위주', '짧은 패스' 등 확장 가능
 export type OutOfPossessionStyle = 'default'; // 향후 '강한 압박', '지역 방어' 등 확장 가능
@@ -52,7 +63,7 @@ export interface PlayerSelectionEntry {
 /**
  * 공격 시(볼 소유 시) 전술 설정
  */
-export interface InPossessionTactic {
+export interface InPossessionTactic extends PhaseSetting {
   formation: string; // 예: "3-2-4-1"
   style: InPossessionStyle;
   customFormation?: CustomFormationSlot[];
@@ -61,7 +72,7 @@ export interface InPossessionTactic {
 /**
  * 수비 시(볼 미소유 시) 전술 설정
  */
-export interface OutOfPossessionTactic {
+export interface OutOfPossessionTactic extends PhaseSetting {
   formation: string; // 예: "4-4-2"
   style: OutOfPossessionStyle;
   customFormation?: CustomFormationSlot[];
@@ -91,14 +102,45 @@ export interface TransitionTactic {
 export interface Tactic {
   readonly id: string;
   label: string;
-  Attacking: InPossessionTactic;
-  Deffending: OutOfPossessionTactic;
-  transition: TransitionTactic;
+  inPossession: {
+    buildUp: InPossessionTactic;
+    progression: InPossessionTactic;
+    creation: InPossessionTactic;
+  };
+  outOfPossession: {
+    highBlock: OutOfPossessionTactic;
+    midBlock: OutOfPossessionTactic;
+    lowBlock: OutOfPossessionTactic;
+  };
+  transitions: TransitionTactic;
+  setPieces: {
+    attacking: PhaseSetting;
+    defending: PhaseSetting;
+  };
+  engineStatePresets: EngineStatePresetMap;
   playerInstructions?: PlayerInstruction[];
   playerSelection?: PlayerSelectionEntry[];
 }
 
 const makeId = () => `tactic-${Math.random().toString(36).slice(2, 10)}`;
+
+const defaultPhaseSetting = (): PhaseSetting => ({
+  defensiveLine: 0.5,
+  width: 0.5,
+  pressingIntensity: 0.5,
+});
+
+const defaultInPossession = (formation: string): InPossessionTactic => ({
+  ...defaultPhaseSetting(),
+  formation,
+  style: 'default',
+});
+
+const defaultOutOfPossession = (formation: string): OutOfPossessionTactic => ({
+  ...defaultPhaseSetting(),
+  formation,
+  style: 'default',
+});
 
 /**
  * 새로운 빈 전술 프리셋을 생성하는 헬퍼 함수
@@ -108,18 +150,25 @@ const makeId = () => `tactic-${Math.random().toString(36).slice(2, 10)}`;
 export const createEmptyTactic = (label = "New Tactic"): Tactic => ({
   id: makeId(),
   label,
-  Attacking: {
-    formation: '4-4-2',
-    style: 'default',
+  inPossession: {
+    buildUp: defaultInPossession('4-3-3'),
+    progression: defaultInPossession('4-3-3'),
+    creation: defaultInPossession('4-3-3'),
   },
-  Deffending: {
-    formation: '4-4-2',
-    style: 'default',
+  outOfPossession: {
+    highBlock: defaultOutOfPossession('4-4-2'),
+    midBlock: defaultOutOfPossession('4-4-2'),
+    lowBlock: defaultOutOfPossession('4-4-2'),
   },
-  transition: {
+  transitions: {
     on_loss: 'fall_back',
     on_win: 'fall_back',
   },
+  setPieces: {
+    attacking: defaultPhaseSetting(),
+    defending: defaultPhaseSetting(),
+  },
+  engineStatePresets: createDefaultEngineStatePresets(),
   playerInstructions: [],
   playerSelection: [],
 });
@@ -133,8 +182,31 @@ type LegacyPlayerSelection =
       deffending?: PlayerSelectionEntry[];
     };
 
-export const normalizeTactic = (tactic: Tactic): Tactic => {
-  const rawSelection = (tactic as unknown as { playerSelection?: LegacyPlayerSelection }).playerSelection;
+export const normalizeTactic = (tactic: any): Tactic => {
+  // Backward compatibility for old tactic structure
+  if (tactic.Attacking || tactic.Deffending) {
+    const newTactic = createEmptyTactic(tactic.label);
+    newTactic.playerInstructions = tactic.playerInstructions;
+    newTactic.playerSelection = tactic.playerSelection;
+    
+    if (tactic.Attacking) {
+      newTactic.inPossession.buildUp.formation = tactic.Attacking.formation;
+      newTactic.inPossession.progression.formation = tactic.Attacking.formation;
+      newTactic.inPossession.creation.formation = tactic.Attacking.formation;
+    }
+    if (tactic.Deffending) {
+      newTactic.outOfPossession.highBlock.formation = tactic.Deffending.formation;
+      newTactic.outOfPossession.midBlock.formation = tactic.Deffending.formation;
+      newTactic.outOfPossession.lowBlock.formation = tactic.Deffending.formation;
+    }
+    if (tactic.transition) {
+      newTactic.transitions = tactic.transition;
+    }
+
+    tactic = newTactic;
+  }
+
+  const rawSelection = tactic.playerSelection;
   if (Array.isArray(rawSelection)) {
     tactic.playerSelection = rawSelection;
   } else if (rawSelection && typeof rawSelection === 'object') {
@@ -151,11 +223,9 @@ export const normalizeTactic = (tactic: Tactic): Tactic => {
     tactic.playerSelection = [];
   }
 
-  (['Attacking', 'Deffending'] as const).forEach((phase) => {
-    const setup = tactic[phase];
-    if (!setup?.customFormation) return;
-
-    setup.customFormation = setup.customFormation.map((slot) => {
+  Object.values(tactic.inPossession).forEach((phase: any) => {
+    if (!phase.customFormation) return;
+    phase.customFormation = phase.customFormation.map((slot: any) => {
       const gridColumn = slot.gridColumn ?? Math.max(0, Math.min(FORMATION_GRID_COLS - 1, Math.round(slot.x * FORMATION_GRID_COLS - 0.5)));
       const gridRow = slot.gridRow ?? Math.max(0, Math.min(FORMATION_GRID_ROWS - 1, Math.round(slot.y * FORMATION_GRID_ROWS - 0.5)));
       const x = (gridColumn + 0.5) / FORMATION_GRID_COLS;
@@ -170,6 +240,26 @@ export const normalizeTactic = (tactic: Tactic): Tactic => {
       };
     });
   });
+
+  Object.values(tactic.outOfPossession).forEach((phase: any) => {
+    if (!phase.customFormation) return;
+    phase.customFormation = phase.customFormation.map((slot: any) => {
+      const gridColumn = slot.gridColumn ?? Math.max(0, Math.min(FORMATION_GRID_COLS - 1, Math.round(slot.x * FORMATION_GRID_COLS - 0.5)));
+      const gridRow = slot.gridRow ?? Math.max(0, Math.min(FORMATION_GRID_ROWS - 1, Math.round(slot.y * FORMATION_GRID_ROWS - 0.5)));
+      const x = (gridColumn + 0.5) / FORMATION_GRID_COLS;
+      const y = (gridRow + 0.5) / FORMATION_GRID_ROWS;
+
+      return {
+        ...slot,
+        x,
+        y,
+        gridColumn,
+        gridRow,
+      };
+    });
+  });
+
+  tactic.engineStatePresets = normalizeEngineStatePresets((tactic as any).engineStatePresets);
 
   return tactic;
 };

@@ -72,7 +72,7 @@ export interface PitchDisplayOptions {
   tactic: Tactic;
   squad: PlayerProfile[];
   store: TacticsStore;
-  mode: 'Attacking' | 'Deffending';
+  mode: 'InPossession' | 'OutOfPossession';
 }
 
 interface SlotState {
@@ -116,7 +116,9 @@ export class PitchDisplay {
   }
 
   #createSlots(): SlotState[] {
-    const tacticPhase = this.#options.tactic[this.#options.mode];
+    const tacticPhase = this.#options.mode === 'InPossession'
+      ? this.#options.tactic.inPossession.progression
+      : this.#options.tactic.outOfPossession.midBlock;
     const { formation, customFormation } = tacticPhase;
 
     if (customFormation && customFormation.length > 0) {
@@ -493,8 +495,13 @@ export class PitchDisplay {
     const tactic = JSON.parse(JSON.stringify(this.#options.tactic)) as Tactic;
     const phase = this.#options.mode;
 
-    tactic[phase].customFormation = newFormation;
-    tactic[phase].formation = 'Custom';
+    if (phase === 'InPossession') {
+      tactic.inPossession.progression.customFormation = newFormation;
+      tactic.inPossession.progression.formation = 'Custom';
+    } else {
+      tactic.outOfPossession.midBlock.customFormation = newFormation;
+      tactic.outOfPossession.midBlock.formation = 'Custom';
+    }
 
     normalizeTactic(tactic);
     this.#options.store.updateActiveTactic(tactic);
