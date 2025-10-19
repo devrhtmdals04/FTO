@@ -1,7 +1,7 @@
 use crate::ai::fsm::{Action, ActionContext, ActionPayload, ActionUpdate};
 use crate::ai::utility::{make_move, player_nav};
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct OffTheBallAction;
 
 impl Action for OffTheBallAction {

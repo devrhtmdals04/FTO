@@ -2,7 +2,7 @@ use crate::ai::fsm::{Action, ActionContext, ActionPayload, ActionUpdate};
 use crate::commands::Cmd;
 
 // The PassAction handler.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct PassAction {
     timer: u32,
 }

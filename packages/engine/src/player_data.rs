@@ -3,6 +3,7 @@ use crate::{state::PlayerInput20, types::Foot};
 pub static SQUAD_A: [PlayerInput20; 11] = [
     // Alisson Becker
     PlayerInput20 {
+        player_id: 1,
         name: "Alisson Becker",
         pace: 9,
         accel: 9,
@@ -25,6 +26,7 @@ pub static SQUAD_A: [PlayerInput20; 11] = [
     },
     // Kyle Walker
     PlayerInput20 {
+        player_id: 2,
         name: "Kyle Walker",
         pace: 18,
         accel: 18,
@@ -47,6 +49,7 @@ pub static SQUAD_A: [PlayerInput20; 11] = [
     },
     // Rúben Dias
     PlayerInput20 {
+        player_id: 3,
         name: "Rúben Dias",
         pace: 12,
         accel: 11,
@@ -69,6 +72,7 @@ pub static SQUAD_A: [PlayerInput20; 11] = [
     },
     // Kim Min-jae
     PlayerInput20 {
+        player_id: 4,
         name: "Kim Min-jae",
         pace: 13,
         accel: 12,
@@ -91,6 +95,7 @@ pub static SQUAD_A: [PlayerInput20; 11] = [
     },
     // Alphonso Davies
     PlayerInput20 {
+        player_id: 5,
         name: "Alphonso Davies",
         pace: 19,
         accel: 19,
@@ -113,6 +118,7 @@ pub static SQUAD_A: [PlayerInput20; 11] = [
     },
     // Rodri
     PlayerInput20 {
+        player_id: 6,
         name: "Rodri",
         pace: 10,
         accel: 10,
@@ -135,6 +141,7 @@ pub static SQUAD_A: [PlayerInput20; 11] = [
     },
     // Luka Modrić
     PlayerInput20 {
+        player_id: 7,
         name: "Luka Modrić",
         pace: 12,
         accel: 13,
@@ -157,6 +164,7 @@ pub static SQUAD_A: [PlayerInput20; 11] = [
     },
     // Kevin De Bruyne
     PlayerInput20 {
+        player_id: 8,
         name: "Kevin De Bruyne",
         pace: 13,
         accel: 12,
@@ -179,6 +187,7 @@ pub static SQUAD_A: [PlayerInput20; 11] = [
     },
     // Mohamed Salah
     PlayerInput20 {
+        player_id: 9,
         name: "Mohamed Salah",
         pace: 17,
         accel: 18,
@@ -201,6 +210,7 @@ pub static SQUAD_A: [PlayerInput20; 11] = [
     },
     // Erling Haaland
     PlayerInput20 {
+        player_id: 10,
         name: "Erling Haaland",
         pace: 17,
         accel: 16,
@@ -223,6 +233,7 @@ pub static SQUAD_A: [PlayerInput20; 11] = [
     },
     // Son Heung-min
     PlayerInput20 {
+        player_id: 11,
         name: "Son Heung-min",
         pace: 18,
         accel: 17,
@@ -248,6 +259,7 @@ pub static SQUAD_A: [PlayerInput20; 11] = [
 pub static SQUAD_B: [PlayerInput20; 11] = [
     // Thibaut Courtois
     PlayerInput20 {
+        player_id: 12,
         name: "Thibaut Courtois",
         pace: 8,
         accel: 8,
@@ -270,6 +282,7 @@ pub static SQUAD_B: [PlayerInput20; 11] = [
     },
     // Achraf Hakimi
     PlayerInput20 {
+        player_id: 13,
         name: "Achraf Hakimi",
         pace: 19,
         accel: 19,
@@ -292,6 +305,7 @@ pub static SQUAD_B: [PlayerInput20; 11] = [
     },
     // Virgil van Dijk
     PlayerInput20 {
+        player_id: 14,
         name: "Virgil van Dijk",
         pace: 12,
         accel: 11,
@@ -314,6 +328,7 @@ pub static SQUAD_B: [PlayerInput20; 11] = [
     },
     // David Alaba
     PlayerInput20 {
+        player_id: 15,
         name: "David Alaba",
         pace: 13,
         accel: 13,
@@ -336,6 +351,7 @@ pub static SQUAD_B: [PlayerInput20; 11] = [
     },
     // Andrew Robertson
     PlayerInput20 {
+        player_id: 16,
         name: "Andrew Robertson",
         pace: 15,
         accel: 15,
@@ -358,6 +374,7 @@ pub static SQUAD_B: [PlayerInput20; 11] = [
     },
     // Casemiro
     PlayerInput20 {
+        player_id: 17,
         name: "Casemiro",
         pace: 10,
         accel: 9,
@@ -380,6 +397,7 @@ pub static SQUAD_B: [PlayerInput20; 11] = [
     },
     // Toni Kroos
     PlayerInput20 {
+        player_id: 18,
         name: "Toni Kroos",
         pace: 10,
         accel: 10,
@@ -402,6 +420,7 @@ pub static SQUAD_B: [PlayerInput20; 11] = [
     },
     // Bruno Fernandes
     PlayerInput20 {
+        player_id: 19,
         name: "Bruno Fernandes",
         pace: 13,
         accel: 13,
@@ -424,6 +443,7 @@ pub static SQUAD_B: [PlayerInput20; 11] = [
     },
     // Lionel Messi
     PlayerInput20 {
+        player_id: 20,
         name: "Lionel Messi",
         pace: 14,
         accel: 15,
@@ -446,6 +466,7 @@ pub static SQUAD_B: [PlayerInput20; 11] = [
     },
     // Kylian Mbappé
     PlayerInput20 {
+        player_id: 21,
         name: "Kylian Mbappé",
         pace: 20,
         accel: 20,
@@ -468,6 +489,7 @@ pub static SQUAD_B: [PlayerInput20; 11] = [
     },
     // Vinícius Júnior
     PlayerInput20 {
+        player_id: 22,
         name: "Vinícius Júnior",
         pace: 19,
         accel: 20,
@@ -496,4 +518,12 @@ pub fn get_baseline_player(slot: usize, team_idx: usize) -> PlayerInput20 {
     } else {
         SQUAD_B[slot]
     }
+}
+
+pub fn get_baseline_player_by_id(player_id: u32) -> Option<PlayerInput20> {
+    SQUAD_A
+        .iter()
+        .find(|p| p.player_id == player_id)
+        .or_else(|| SQUAD_B.iter().find(|p| p.player_id == player_id))
+        .copied()
 }

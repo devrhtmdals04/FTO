@@ -26,6 +26,28 @@ const animationConfig = {
   }
 };
 
+function mapStateToString(state: number): string {
+    switch (state) {
+        case 0: return 'Idle';
+        case 1: return 'OnTheBall';
+        case 2: return 'OffTheBallAttack';
+        case 3: return 'Defending';
+        default: return 'Unknown';
+    }
+}
+
+function mapRoleToString(role: number): string {
+    const roles = ['GK', 'LB', 'LCB', 'RCB', 'RB', 'LM', 'LCM', 'RCM', 'RM', 'LF', 'RF', 'CB', 'CDM', 'CAM', 'ST', 'LW', 'RW'];
+    return roles[role] || 'Unknown';
+}
+
+export interface DebugFlags {
+    showName: boolean;
+    showRole: boolean;
+    showState: boolean;
+    showAction: boolean;
+}
+
 export class PlayerSystem {
   group = new THREE.Group();
   ready = false;
@@ -178,7 +200,7 @@ export class PlayerSystem {
     }
   }
 
-  update(view: PlayerView[], profiles: PlayerProfile[], dt: number) {
+  update(view: PlayerView[], profiles: PlayerProfile[], dt: number, debugFlags: DebugFlags) {
     if (!this.ready) return;
     for (let i = 0; i < this.inst.length; i++) {
       const mappedIdx = this.playerIndexMap[i] ?? i;
@@ -205,14 +227,25 @@ export class PlayerSystem {
       if (actions[walk]) actions[walk].setEffectiveWeight(0); // Ensure walk is disabled
 
       if (this.isMasterDebug) {
-        if (i === 0) {
-            console.log(`[Debug] P${mappedIdx}: speed=${speed.toFixed(2)}, wIdle=${wIdle.toFixed(2)}, wRun=${wRun.toFixed(2)}`);
+        const profile = profiles[mappedIdx];
+        const lines: string[] = [];
+        if (profile && debugFlags.showName) {
+            lines.push(profile.name);
         }
-        const actionName = this.getCurrentActionName(i);
-        updateDebugText(p, actionName);
+        if (debugFlags.showRole) {
+            lines.push(`Role: ${mapRoleToString(v.role)}`);
+        }
+        if (debugFlags.showState) {
+            lines.push(`State: ${mapStateToString(v.state)}`);
+        }
+        if (debugFlags.showAction) {
+            lines.push(`Action: ${this.getCurrentActionName(i)}`);
+        }
+
+        updateDebugText(p, lines);
+
         if (p.controlRadiusCircle) {
           p.controlRadiusCircle.visible = true;
-          const profile = profiles[mappedIdx];
           if (profile) {
             const radius = profile.ctrl_radius;
             p.controlRadiusCircle.scale.set(radius, 1, radius);

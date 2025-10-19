@@ -1,35 +1,34 @@
 export type TeamId = 0 | 1;
 
-export interface PlayerView {
-  x: number;  // meters
-  y: number;  // meters
-  h: [number, number]; // heading unit vector (hx, hy)
-  vis: number; // vis_scale from PlayerParams (1.0 ~)
-  team: TeamId;
-  has_ball: boolean;
-  speed?: number; // Calculated speed from simulation
-  // --- 확장(옵션) ---
-  vis_y?: number;             // 키 스케일 (없으면 vis 사용)
-  vis_xz?: number;            // 몸통 폭 스케일 (없으면 vis 사용)
+export interface BallView {
+  x: number;
+  y: number;
+  z: number;
 }
 
-export interface BallView {
-  x: number; y: number; z: number; // meters
+export interface PlayerView {
+  x: number;
+  y: number;
+  h: [number, number];
+  vis: number;
+  team: number;
+  has_ball: boolean;
+  state: number;
+  role: number;
 }
 
 export interface SimView {
-  tick: number;           // engine tick (20Hz)
+  tick: number;
   ball: BallView;
-  players: PlayerView[];  // length 22
+  players: PlayerView[];
 }
 
 export interface PlayerProfile {
   index: number;
-  team: TeamId;
   name: string;
+  team: number;
   pace: number;
   accel: number;
-  agility: number;
   stamina: number;
   strength: number;
   first_touch: number;
@@ -44,7 +43,7 @@ export interface PlayerProfile {
   height_cm: number;
   weight_kg: number;
   foot: 'L' | 'R';
-  weak_foot: number; // 1..5
+  weak_foot: number;
   ctrl_radius: number;
 }
 

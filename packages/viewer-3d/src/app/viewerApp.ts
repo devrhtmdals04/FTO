@@ -22,6 +22,8 @@ function createEmptySimView(): SimView {
     vis: 1,
     team: (i < 11 ? 0 : 1),
     has_ball: false,
+    state: 0,
+    role: 0,
   }));
   return { tick: 0, ball: { x: 0, y: 0, z: 0 }, players };
 }
@@ -78,10 +80,16 @@ export class ViewerApp {
   private fps = 0;
   private frameHandle: number | null = null;
 
-  private isPaused = false;
+  private isPaused = true;
   private isDriveMode = false;
   private currentPlayerCount = 1;
   private currentModelUrl: string;
+
+  // Debug visibility flags
+  private showPlayerName = true;
+  private showPlayerRole = true;
+  private showPlayerState = true;
+  private showPlayerAction = true;
 
   constructor(private readonly mount: HTMLElement, private readonly doc: Document = document) {
     this.ui = this.resolveUIElements();
@@ -104,7 +112,11 @@ export class ViewerApp {
     this.playerProfiles = this.source.getPlayerProfiles();
     this.populatePlayerProfileSelect();
 
-    const initialCount = this.getRequestedPlayerCount();
+    const initialCount = MAX_PLAYERS;
+    if (this.ui.playerCountInput) {
+      this.ui.playerCountInput.value = initialCount.toString();
+    }
+
     await this.players.init(initialCount, this.currentModelUrl);
     this.currentPlayerCount = initialCount;
     this.syncAiActive(initialCount);
@@ -164,7 +176,12 @@ export class ViewerApp {
     const alpha = this.isPaused ? 1 : this.acc / STEP_DT;
     const interpolatedPlayers = this.interpolatePlayers(alpha);
 
-    this.players.update(interpolatedPlayers, this.playerProfiles, dt);
+    this.players.update(interpolatedPlayers, this.playerProfiles, dt, {
+        showName: this.showPlayerName,
+        showRole: this.showPlayerRole,
+        showState: this.showPlayerState,
+        showAction: this.showPlayerAction,
+    });
     this.ball.update({
       x: THREE.MathUtils.lerp(this.prev.ball.x, this.curr.ball.x, alpha),
       y: THREE.MathUtils.lerp(this.prev.ball.y, this.curr.ball.y, alpha),
@@ -246,7 +263,8 @@ export class ViewerApp {
     const forwardDir = new THREE.Vector2(controlledPlayer.h[0], controlledPlayer.h[1]);
     if (forwardDir.lengthSq() < 1e-6) {
       forwardDir.set(0, 1);
-    } else {
+    }
+    else {
       forwardDir.normalize();
     }
     const rightDir = new THREE.Vector2(-forwardDir.y, forwardDir.x);
@@ -270,7 +288,8 @@ export class ViewerApp {
           moveDir,
         );
       }
-    } else {
+    }
+    else {
       this.driveTarget = null;
       if (this.selectedProfileIndex != null) {
         this.players.setMoveTarget(this.selectedProfileIndex, null);
@@ -448,7 +467,8 @@ export class ViewerApp {
         if (typeof window !== 'undefined' && typeof window.alert === 'function') {
           window.alert(`Failed to load model from "${effectiveUrl}". Reverting to "${previousUrl}".`);
         }
-      } else {
+      }
+      else {
         throw err;
       }
     }
@@ -486,7 +506,8 @@ export class ViewerApp {
     }
     if (this.playerProfiles.length) {
       this.setSelectedProfileIndex(this.playerProfiles[0].index);
-    } else {
+    }
+    else {
       this.setSelectedProfileIndex(null);
     }
   }
@@ -523,7 +544,8 @@ export class ViewerApp {
           dir = new THREE.Vector2(target2D.x - player.x, target2D.y - player.y);
           if (dir.lengthSq() > 1e-6) {
             dir.normalize();
-          } else {
+          }
+          else {
             dir = null;
           }
         }
@@ -532,7 +554,8 @@ export class ViewerApp {
           new THREE.Vector3(target2D.x, 0, target2D.y),
           dir ?? undefined,
         );
-      } else {
+      }
+      else {
         this.players.setMoveTarget(index, null);
       }
     }
@@ -680,6 +703,50 @@ export class ViewerApp {
         condition: () => this.players.isMasterDebug,
       },
       {
+        code: 'Digit3',
+        keyLabel: '3',
+        description: 'Toggle Player Name',
+        handler: () => {
+            this.showPlayerName = !this.showPlayerName;
+            this.renderDebugInfoPanel();
+        },
+        suppressRepeat: true,
+        condition: () => this.players.isMasterDebug,
+      },
+      {
+        code: 'Digit4',
+        keyLabel: '4',
+        description: 'Toggle Player Role',
+        handler: () => {
+            this.showPlayerRole = !this.showPlayerRole;
+            this.renderDebugInfoPanel();
+        },
+        suppressRepeat: true,
+        condition: () => this.players.isMasterDebug,
+      },
+      {
+        code: 'Digit5',
+        keyLabel: '5',
+        description: 'Toggle Player State',
+        handler: () => {
+            this.showPlayerState = !this.showPlayerState;
+            this.renderDebugInfoPanel();
+        },
+        suppressRepeat: true,
+        condition: () => this.players.isMasterDebug,
+      },
+      {
+        code: 'Digit6',
+        keyLabel: '6',
+        description: 'Toggle Player Action',
+        handler: () => {
+            this.showPlayerAction = !this.showPlayerAction;
+            this.renderDebugInfoPanel();
+        },
+        suppressRepeat: true,
+        condition: () => this.players.isMasterDebug,
+      },
+      {
         code: 'KeyJ',
         keyLabel: 'J',
         description: 'Queue Shoot Command',
@@ -745,10 +812,6 @@ export class ViewerApp {
 
   private async handleMasterDebugToggle(): Promise<void> {
     const enteringDebug = !this.players.isMasterDebug;
-    if (this.ui.playerCountInput) {
-      this.ui.playerCountInput.value = enteringDebug ? '1' : MAX_PLAYERS.toString();
-    }
-    await this.restartPlayerSystem();
     this.players.toggleMasterDebug(enteringDebug);
     this.renderDebugInfoPanel();
   }

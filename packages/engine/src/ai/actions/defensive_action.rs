@@ -1,6 +1,6 @@
 use crate::ai::fsm::{Action, ActionContext, ActionPayload, ActionUpdate};
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct DefensiveAction;
 
 impl Action for DefensiveAction {

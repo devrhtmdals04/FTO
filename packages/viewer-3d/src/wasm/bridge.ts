@@ -42,14 +42,17 @@ function parseSimView(viewData: Uint8Array): SimView {
     const vis    = dv.getFloat32(off, true); off += 4;
     const vis_y  = dv.getFloat32(off, true); off += 4;
     const vis_xz = dv.getFloat32(off, true); off += 4;
-  const team   = dv.getUint8(off);          off += 1;
-  let hasBall = false;
-  if (ver >= 3) {
-    hasBall = dv.getUint8(off) !== 0; off += 1;
-    off += 2;
-  } else {
-    off += 3; // legacy padding
-  }
+    const team   = dv.getUint8(off);          off += 1;
+    let hasBall = false;
+    let state = 0;
+    let role = 0;
+    if (ver >= 3) {
+      hasBall = dv.getUint8(off) !== 0; off += 1;
+      state = dv.getUint8(off); off += 1;
+      role = dv.getUint8(off); off += 1;
+    } else {
+      off += 3; // legacy padding
+    }
 
     // heading 정규화(안전)
     const n = Math.hypot(hx, hy) || 1;
@@ -57,10 +60,10 @@ function parseSimView(viewData: Uint8Array): SimView {
       x, y,
       h: [hx / n, hy / n],
       vis,
-      vis_y,
-      vis_xz,
       team: (team === 0 ? 0 : 1) as TeamId,
       has_ball: hasBall,
+      state: state,
+      role: role,
     };
   }
 
@@ -111,7 +114,7 @@ export function createEngineBridge() {
     if (!ready) {
       // 초기 로딩 중엔 빈 모션
       return { tick: lastTick, ball: {x:0,y:0,z:0}, players: Array.from({length:22},(_,i)=>( 
-        {x:0,y:0,h:[1,0],vis:1,team:(i<11?0:1)} as PlayerView
+        {x:0,y:0,h:[1,0],vis:1,team:(i<11?0:1), state: 0, role: 0} as PlayerView
       )) };
     }
     // 고정틱
@@ -121,7 +124,7 @@ export function createEngineBridge() {
     if (viewData.length === 0) {
         // 버퍼가 너무 작거나 다른 에러
         return { tick: lastTick, ball: {x:0,y:0,z:0}, players: Array.from({length:22},(_,i)=>( 
-            {x:0,y:0,h:[1,0],vis:1,team:(i<11?0:1)} as PlayerView
+            {x:0,y:0,h:[1,0],vis:1,team:(i<11?0:1), state: 0, role: 0} as PlayerView
         )) };
     }
 
@@ -144,3 +147,4 @@ export function createEngineBridge() {
       }) as WasmEngine
   }
 }
+

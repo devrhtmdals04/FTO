@@ -1,6 +1,6 @@
 use crate::params::{DT, PITCH_H, PITCH_W, R_BODY};
-use crate::player_data::get_baseline_player;
-use crate::tactics::Tactics;
+use crate::player_data::get_baseline_player_by_id;
+use crate::tactics::QuantifiedTactics;
 use crate::types::{
     BallMode, Foot, MatchPhase, PlayerCommandState, PlayerParams, PlayerRole, RoleOverrideState,
     TeamId, Vec2,
@@ -17,6 +17,7 @@ pub const N_TEAMS: usize = 2;
 #[repr(C)]
 #[derive(Clone, Copy, Serialize)]
 pub struct PlayerInput20 {
+    pub player_id: u32,
     pub name: &'static str,
     pub pace: u8,         // Top speed
     pub accel: u8,        // Acceleration
@@ -63,8 +64,9 @@ pub struct World {
     pub possession: i8, // Which team has possession (-1 for none, 0 for Home, 1 for Away).
 
     // --- Team and Player Data ---
-    pub tactics: [Tactics; N_TEAMS], // Tactical settings for each team.
+    pub tactics: [QuantifiedTactics; N_TEAMS], // Tactical settings for each team.
 
+    pub p_player_id: [u32; N_PLAYERS],
     pub p_team: [u8; N_PLAYERS],             // Team ID for each player.
     pub p_role: [PlayerRole; N_PLAYERS],     // Tactical role for each player.
     pub p_params: [PlayerParams; N_PLAYERS], // Computed physics parameters for each player.
@@ -108,7 +110,8 @@ impl World {
             home_score: 0,
             away_score: 0,
             possession: TeamId::Home.index() as i8,
-            tactics: [Tactics::default(); N_TEAMS],
+            tactics: [QuantifiedTactics::default(); N_TEAMS],
+            p_player_id: [0; N_PLAYERS],
             p_team: [0; N_PLAYERS],
             p_role: [PlayerRole::default(); N_PLAYERS],
             p_params: [PlayerParams::default(); N_PLAYERS],
@@ -122,18 +125,24 @@ impl World {
             prole_override: [RoleOverrideState::default(); N_PLAYERS],
             plast_eval_tick: [0; N_PLAYERS],
         };
-        world.initialize_params();
         world.reset_kickoff();
         world
     }
 
     /// Initializes the physics parameters for all players based on their baseline stats.
-    fn initialize_params(&mut self) {
-        for idx in 0..N_PLAYERS {
-            let team_idx = idx / N_PER_TEAM;
-            let slot = idx % N_PER_TEAM;
-            let input = get_baseline_player(slot, team_idx);
-            self.p_params[idx] = compute_params_20(&input);
+    pub fn initialize_params(&mut self, home_lineup: &[u32], away_lineup: &[u32]) {
+        for i in 0..N_PER_TEAM {
+            if let Some(input) = get_baseline_player_by_id(home_lineup[i]) {
+                self.p_params[i] = compute_params_20(&input);
+                self.p_player_id[i] = input.player_id;
+            }
+        }
+        for i in 0..N_PER_TEAM {
+            if let Some(input) = get_baseline_player_by_id(away_lineup[i]) {
+                let player_index = N_PER_TEAM + i;
+                self.p_params[player_index] = compute_params_20(&input);
+                self.p_player_id[player_index] = input.player_id;
+            }
         }
     }
 

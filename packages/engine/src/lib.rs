@@ -16,6 +16,7 @@ pub mod commands;
 pub mod engine;
 pub mod params;
 pub mod physics;
+pub mod player_class;
 pub mod player_data;
 pub mod rng;
 pub mod rules;
@@ -108,18 +109,16 @@ impl WasmEngine {
         let mut all_players_data = Vec::new();
         for i in 0..11 {
             let base_stats = crate::player_data::get_baseline_player(i, 0);
-            let params = compute_params_20(&base_stats);
             all_players_data.push(PlayerProfileData {
                 base: base_stats,
-                ctrl_radius: params.ctrl_radius,
+                ctrl_radius: compute_params_20(&base_stats).ctrl_radius,
             });
         }
         for i in 0..11 {
             let base_stats = crate::player_data::get_baseline_player(i, 1);
-            let params = compute_params_20(&base_stats);
             all_players_data.push(PlayerProfileData {
                 base: base_stats,
-                ctrl_radius: params.ctrl_radius,
+                ctrl_radius: compute_params_20(&base_stats).ctrl_radius,
             });
         }
         serde_json::to_string(&all_players_data).unwrap_or_else(|_| "[]".to_string())
@@ -156,6 +155,9 @@ impl WasmEngine {
         for i in 0..N_PLAYERS {
             let params = &world.p_params[i];
             let (vis_y, vis_xz) = vis_from_params(params.height_m, params.bmi);
+            let player_class = self.inner.get_player_class(i).unwrap();
+            let state = player_class.fsm.get_state();
+            let role = player_class.role.to_u8();
 
             write_f32(&mut buffer, world.px[i]); // x
             write_f32(&mut buffer, world.py[i]); // y
@@ -167,7 +169,8 @@ impl WasmEngine {
 
             write_u8(&mut buffer, world.p_team[i]); // team
             write_u8(&mut buffer, if world.player_has_ball(i) { 1 } else { 0 });
-            buffer.extend_from_slice(&[0, 0]); // Padding for alignment
+            write_u8(&mut buffer, state.to_u8()); // fsm_state
+            write_u8(&mut buffer, role); // role
         }
 
         buffer

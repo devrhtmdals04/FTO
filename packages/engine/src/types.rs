@@ -1,5 +1,6 @@
 use core::ops::{Add, AddAssign, Div, Mul, Sub, SubAssign};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 pub type PlayerIndex = usize;
 pub const HOME_TEAM_INDEX: usize = 0;
@@ -269,4 +270,134 @@ pub struct PlayerCommandState {
 pub struct RoleOverrideState {
     pub ttl: u16,
     pub params: RoleParams,
+}
+
+// ------------------- Tactical Data Structures -------------------
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum DetailedPlayerRole {
+    GK,
+    LB,
+    LCB,
+    RCB,
+    RB,
+    LM,
+    LCM,
+    RCM,
+    RM,
+    LF,
+    RF,
+    CB,
+    CDM,
+    CAM,
+    ST,
+    LW,
+    RW,
+}
+
+impl DetailedPlayerRole {
+    pub fn to_u8(&self) -> u8 {
+        match self {
+            DetailedPlayerRole::GK => 0,
+            DetailedPlayerRole::LB => 1,
+            DetailedPlayerRole::LCB => 2,
+            DetailedPlayerRole::RCB => 3,
+            DetailedPlayerRole::RB => 4,
+            DetailedPlayerRole::LM => 5,
+            DetailedPlayerRole::LCM => 6,
+            DetailedPlayerRole::RCM => 7,
+            DetailedPlayerRole::RM => 8,
+            DetailedPlayerRole::LF => 9,
+            DetailedPlayerRole::RF => 10,
+            DetailedPlayerRole::CB => 11,
+            DetailedPlayerRole::CDM => 12,
+            DetailedPlayerRole::CAM => 13,
+            DetailedPlayerRole::ST => 14,
+            DetailedPlayerRole::LW => 15,
+            DetailedPlayerRole::RW => 16,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TeamAttacking {
+    pub buildup_formation: String,
+    pub goalkeeper_engage: bool,
+    pub pass_distance: f32,
+    pub final_third_formation: String,
+    pub attack_preference: String,
+    pub cross_frequency: f32,
+    pub over_underlapping_player: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum OnBallGain {
+    InPosition,
+    CounterAttack,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum OnBallLoose {
+    BackPosition,
+    CounterPress,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TeamTransition {
+    pub on_ball_gain: OnBallGain,
+    pub on_ball_loose: OnBallLoose,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum BlockType {
+    Pressing,
+    MakeBlock,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum LowBlockType {
+    BlockMiddle,
+    BlockSide,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TeamDefending {
+    pub defending_formation: String,
+    pub high_block: BlockType,
+    pub mid_block: BlockType,
+    pub low_block: LowBlockType,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TeamSetPiece {
+    pub attack_corner: String,
+    pub defence_corner: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TeamTactic {
+    pub team_attacking: TeamAttacking,
+    pub team_transition: TeamTransition,
+    pub team_defending: TeamDefending,
+    pub team_set_piece: TeamSetPiece,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PlayerInstruction {
+    pub risk_intensity: f32,
+    pub defense_participation: f32,
+    pub attacking_participation: f32,
+    pub mark_man_id: Option<u32>,
+    pub buildup_intensity: Option<f32>,
+    pub cover_radius: Option<f32>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Tactic {
+    pub offensive_formation: String,
+    pub defensive_formation: String,
+    pub roles: Vec<DetailedPlayerRole>,
+    pub lineup: Vec<u32>,
+    pub team_tactic: TeamTactic,
+    pub personal_instructions: HashMap<u32, PlayerInstruction>,
 }

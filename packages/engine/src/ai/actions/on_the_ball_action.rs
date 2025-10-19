@@ -11,6 +11,7 @@ enum OnBallSubState {
     ExecutingShoot,
 }
 
+#[derive(Debug)]
 pub struct OnTheBallAction {
     sub_state: OnBallSubState,
     pass_action: PassAction,

@@ -19,21 +19,20 @@ export interface PlayerInstance {
 const modelCache = new Map<string, THREE.Object3D>();
 
 // Helper to create a text sprite
-function createActionTextSprite(text: string): THREE.Sprite {
+function createActionTextSprite(): THREE.Sprite {
     const canvas = document.createElement('canvas');
     const context = canvas.getContext('2d')!;
-    canvas.width = 128;
-    canvas.height = 32;
+    canvas.width = 256;
+    canvas.height = 128;
     context.font = 'Bold 20px Arial';
     context.fillStyle = 'rgba(255, 255, 255, 0.9)';
     context.textAlign = 'center';
     context.textBaseline = 'middle';
-    context.fillText(text, canvas.width / 2, canvas.height / 2);
 
     const texture = new THREE.CanvasTexture(canvas);
     const material = new THREE.SpriteMaterial({ map: texture });
     const sprite = new THREE.Sprite(material);
-    sprite.scale.set(4, 1, 1.0);
+    sprite.scale.set(8, 4, 1.0);
     return sprite;
 }
 
@@ -101,7 +100,7 @@ export function spawnPlayer(template: THREE.Object3D, team: 0|1): PlayerInstance
   debugMesh.visible = false;
   root.add(debugMesh);
 
-  const debugText = createActionTextSprite("IDLE");
+  const debugText = createActionTextSprite();
   debugText.position.y = 2.2; // Position above the player
   debugText.visible = false;
   root.add(debugText);
@@ -168,8 +167,8 @@ export function applyTransform(p: PlayerInstance, view: PlayerView) {
 
   // Counteract root scaling for debug text sprite to maintain constant screen size
   if (p.debugText) {
-      const baseSpriteScaleX = 4;
-      const baseSpriteScaleY = 1;
+      const baseSpriteScaleX = 8;
+      const baseSpriteScaleY = 4;
       p.debugText.scale.set(baseSpriteScaleX / xz, baseSpriteScaleY / y, 1.0);
       
       // Position text above the scaled head height
@@ -179,16 +178,24 @@ export function applyTransform(p: PlayerInstance, view: PlayerView) {
   }
 }
 
-export function updateDebugText(p: PlayerInstance, text: string) {
+export function updateDebugText(p: PlayerInstance, lines: string[]) {
     if (!p.debugText) return;
 
     const sprite = p.debugText;
     const canvas = (sprite.material.map as THREE.CanvasTexture).image as HTMLCanvasElement;
     const context = canvas.getContext('2d')!;
+    const lineHeight = 28;
+    const padding = 4;
 
     // Clear and redraw text
     context.clearRect(0, 0, canvas.width, canvas.height);
-    context.fillText(text, canvas.width / 2, canvas.height / 2);
+    context.font = 'Bold 24px Arial';
+    context.fillStyle = 'rgba(255, 255, 255, 0.95)';
+    context.textAlign = 'center';
+
+    lines.forEach((line, index) => {
+        context.fillText(line, canvas.width / 2, padding + (index * lineHeight));
+    });
 
     sprite.material.map!.needsUpdate = true;
 }

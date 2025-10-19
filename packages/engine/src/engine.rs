@@ -1,12 +1,15 @@
-use crate::ai::fsm::{PlayerFSM, TeamState};
+use crate::ai::fsm::TeamState;
 use crate::ai::scheduler::Scheduler;
 use crate::commands::{parse_command, Cmd, CommandBuffer, CommandError, ParseError};
 use crate::physics::{ball::step_ball, player::step_players, PhysicsContext};
+use crate::player_class::PlayerClass;
 use crate::rng::DeterministicRng;
 use crate::rules::{offside::check_offside, referee::update_referee, restarts::handle_restarts};
 use crate::snapshot::{self, DeltaBuffer, HashGuard, QuantizedWorld, SnapshotBuffer};
-use crate::state::{World, N_PLAYERS};
-use crate::types::{BallMode, TeamId, Vec2};
+use crate::state::{World, N_PER_TEAM, N_PLAYERS};
+use crate::tactics::{load_tactic_from_json, quantify};
+use crate::types::{BallMode, Tactic, TeamId, Vec2};
+use log::info;
 
 pub struct Engine {
     pub world: World,
@@ -14,7 +17,7 @@ pub struct Engine {
     commands: CommandBuffer,
     scheduler: Scheduler,
     physics: PhysicsContext,
-    fsms: Vec<PlayerFSM>,
+    player_classes: Vec<PlayerClass>,
     pub ai_active: Vec<bool>,
     last_hash: [u8; 32],
     last_quantized: Option<QuantizedWorld>,
@@ -22,18 +25,99 @@ pub struct Engine {
 
 impl Engine {
     pub fn new(seed: u64) -> Self {
+        let mut world = World::new(seed);
+
+        // -- Tactics Initialization --
+        let dummy_tactic_json = r#"
+        {
+          "offensive_formation": "4-3-3",
+          "defensive_formation": "4-4-2",
+          "roles": ["GK", "LB", "LCB", "RCB", "RB", "LCM", "RCM", "CAM", "LW", "RW", "ST"],
+          "lineup": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+          "team_tactic": {
+            "team_attacking": {
+              "buildup_formation": "4-3-3",
+              "goalkeeper_engage": false,
+              "pass_distance": 0.5,
+              "final_third_formation": "2-1-7",
+              "attack_preference": "center",
+              "cross_frequency": 0.3,
+              "over_underlapping_player": "fullbacks"
+            },
+            "team_transition": {
+              "on_ball_gain": "InPosition",
+              "on_ball_loose": "CounterPress"
+            },
+            "team_defending": {
+              "defending_formation": "4-4-2",
+              "high_block": "Pressing",
+              "mid_block": "MakeBlock",
+              "low_block": "BlockMiddle"
+            },
+            "team_set_piece": {
+              "attack_corner": "default",
+              "defence_corner": "default"
+            }
+          },
+          "personal_instructions": {
+            "5": {
+              "risk_intensity": 0.3,
+              "defense_participation": 0.8,
+              "attacking_participation": 0.4,
+              "mark_man_id": 9,
+              "buildup_intensity": null,
+              "cover_radius": null
+            },
+            "10": {
+              "risk_intensity": 0.8,
+              "defense_participation": 0.2,
+              "attacking_participation": 0.9,
+              "mark_man_id": null,
+              "buildup_intensity": null,
+              "cover_radius": null
+            }
+          }
+        }
+        "#;
+
+        let home_tactic: Tactic = load_tactic_from_json(dummy_tactic_json).unwrap();
+        let away_tactic: Tactic = load_tactic_from_json(dummy_tactic_json).unwrap(); // Using same for now
+
+        world.initialize_params(&home_tactic.lineup, &away_tactic.lineup);
+
+        let home_quantified = quantify(&home_tactic);
+        let away_quantified = quantify(&away_tactic);
+
+        world.tactics[TeamId::Home.index()] = home_quantified;
+        world.tactics[TeamId::Away.index()] = away_quantified;
+
+        let player_classes: Vec<PlayerClass> = (0..N_PLAYERS)
+            .map(|i| {
+                let team_id = TeamId::from_index(i / N_PER_TEAM);
+                let (tactic, quantified) = if team_id == TeamId::Home {
+                    (&home_tactic, &home_quantified)
+                } else {
+                    (&away_tactic, &away_quantified)
+                };
+                PlayerClass::new(&world, tactic, quantified, i)
+            })
+            .collect();
+
+        info!("Player 5 Class: {:?}", player_classes[5]);
+        info!("Player 10 Class: {:?}", player_classes[10]);
+
         let mut engine = Self {
-            world: World::new(seed),
+            world,
             _rng: DeterministicRng::new(seed),
             commands: CommandBuffer::new(),
             scheduler: Scheduler::new(),
             physics: PhysicsContext::new(),
-            fsms: (0..N_PLAYERS).map(|_| PlayerFSM::new()).collect(),
+            player_classes,
             ai_active: vec![true; N_PLAYERS],
             last_hash: [0; 32],
             last_quantized: None,
         };
-        engine.update_hash(); // Re-enabled
+        engine.update_hash();
         engine
     }
 
@@ -63,19 +147,16 @@ impl Engine {
 
         for i in 0..N_PLAYERS {
             if self.scheduler.should_evaluate(i) && self.ai_active[i] {
-                if let Some(fsm) = self.fsms.get_mut(i) {
-                    let player_team_id = self.world.team_id(i);
-                    let team_state = if player_team_id == TeamId::Home as u8 {
-                        home_team_state
-                    } else {
-                        away_team_state
-                    };
+                let team_state = if self.player_classes[i].team_id == TeamId::Home {
+                    home_team_state
+                } else {
+                    away_team_state
+                };
 
-                    if let Some(cmd) = fsm.tick(&mut self.world, i, team_state) {
-                        self.commands
-                            .push(self.world.tick, self.world.tick + 1, cmd)
-                            .ok();
-                    }
+                if let Some(cmd) = self.player_classes[i].update_ai(&mut self.world, team_state) {
+                    self.commands
+                        .push(self.world.tick, self.world.tick + 1, cmd)
+                        .ok();
                 }
             }
         }
@@ -125,11 +206,16 @@ impl Engine {
         self.last_hash
     }
 
+    pub fn get_player_class(&self, player_id: usize) -> Option<&PlayerClass> {
+        self.player_classes.get(player_id)
+    }
+
     fn process_commands(&mut self) {
         let commands_to_process: Vec<Cmd> = self.commands.drain_ready(self.world.tick).collect();
         for cmd in commands_to_process {
             match cmd {
                 Cmd::TacticsSet(tactics) => {
+                    // TODO: This should also update player_classes
                     self.world.tactics[TeamId::Home.index()] = tactics;
                 }
                 Cmd::RoleOverride { pid, params, ttl } => {

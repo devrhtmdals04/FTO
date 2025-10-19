@@ -24,6 +24,17 @@ pub enum State {
     Defending,
 }
 
+impl State {
+    pub fn to_u8(&self) -> u8 {
+        match self {
+            State::Idle => 0,
+            State::OnTheBall => 1,
+            State::OffTheBallAttack => 2,
+            State::Defending => 3,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub enum ActionPayload<'a> {
     None,
@@ -49,7 +60,7 @@ pub trait Action {
 
 // --- Action Handlers ---
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct IdleAction;
 impl Action for IdleAction {
     fn begin(&mut self, _context: &mut ActionContext, _payload: &ActionPayload) -> Option<Cmd> {
@@ -64,6 +75,7 @@ impl Action for IdleAction {
 }
 
 // The Finite State Machine for a single player.
+#[derive(Debug)]
 pub struct PlayerFSM {
     state: State,
     idle_action: IdleAction,
@@ -81,6 +93,10 @@ impl PlayerFSM {
             otb_action: OffTheBallAction::default(),
             defensive_action: DefensiveAction::default(),
         }
+    }
+
+    pub fn get_state(&self) -> State {
+        self.state
     }
 
     pub fn tick(
@@ -109,6 +125,7 @@ impl PlayerFSM {
         }
 
         if self.state == State::Idle {
+            // TODO: Pass tactical info to decide
             let decision = decide(&perception, team_state);
             return self.transition(decision.state, &mut context, &decision.payload);
         }
@@ -136,10 +153,10 @@ impl PlayerFSM {
         context: &mut ActionContext,
         payload: &ActionPayload,
     ) -> Option<Cmd> {
-        info!(
-            "[Player {}] State transition: {:?} -> {:?}",
-            context.player_index, self.state, new_state
-        );
+        // info!(
+        //     "[Player {}] State transition: {:?} -> {:?}",
+        //     context.player_index, self.state, new_state
+        // );
         self.state = new_state;
         match self.state {
             State::Idle => self.idle_action.begin(context, payload),
@@ -157,7 +174,13 @@ struct DecisionOutput<'a> {
     payload: ActionPayload<'a>,
 }
 
-fn decide<'a>(p: &'a Perception, team_state: TeamState) -> DecisionOutput<'a> {
+fn decide<'a>(
+    p: &'a Perception,
+    team_state: TeamState,
+    // _player_class: &PlayerClass, // TODO: Use this
+) -> DecisionOutput<'a> {
+    // TODO: Use player_class.quantified_tactics and player_class.personal_instructions
+    // to make more intelligent decisions.
     match team_state {
         TeamState::Attacking | TeamState::Transition => {
             if p.me.has_ball {

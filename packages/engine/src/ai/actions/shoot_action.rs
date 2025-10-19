@@ -2,7 +2,7 @@ use crate::ai::fsm::{Action, ActionContext, ActionPayload, ActionUpdate};
 use crate::commands::Cmd;
 
 // The ShootAction handler.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct ShootAction {
     timer: u32,
 }

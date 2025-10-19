@@ -1,12 +1,12 @@
 use crate::state::N_PLAYERS;
-use crate::tactics::Tactics;
-use crate::types::RoleParams;
+use crate::tactics::{quantify, QuantifiedTactics};
+use crate::types::{RoleParams, Tactic};
 use serde::Deserialize;
 use wasm_bindgen::JsValue;
 
 #[derive(Debug, Clone, Copy)]
 pub enum Cmd {
-    TacticsSet(Tactics),
+    TacticsSet(QuantifiedTactics),
     RoleOverride {
         pid: u8,
         params: RoleParams,
@@ -69,7 +69,7 @@ struct CommandFields {
 
 #[derive(Deserialize)]
 struct TacticsCmd {
-    tactics: Tactics,
+    tactics: Tactic,
 }
 
 #[derive(Deserialize)]
@@ -122,7 +122,8 @@ pub fn parse_command(js_value: JsValue) -> Result<ParsedCommand, ParseError> {
     let cmd = match fields.ty.as_str() {
         "tactics_set" => {
             let val: TacticsCmd = serde_wasm_bindgen::from_value(js_value)?;
-            Cmd::TacticsSet(val.tactics)
+            let quantified_tactics = quantify(&val.tactics);
+            Cmd::TacticsSet(quantified_tactics)
         }
         "role_override" => {
             let val: RoleOverrideCmd = serde_wasm_bindgen::from_value(js_value)?;
