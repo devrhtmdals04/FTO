@@ -23,5 +23,21 @@ pub fn handle_restarts(world: &mut World) {
                 world.bvy = 0.0;
             }
         }
+        MatchPhase::Kickoff => {
+            // If the ball has been touched (i.e., it's moving), the game is on.
+            if world.bvx.abs() > 0.01 || world.bvy.abs() > 0.01 {
+                world.match_phase = MatchPhase::InPlay;
+                return;
+            }
+
+            // Reset ball position to the center at the start of a kickoff
+            world.bx = 0.0;
+            world.by = 0.0;
+            world.bz = 0.2; // Slightly above ground
+            world.bvx = 0.0;
+            world.bvy = 0.0;
+            world.bvz = 0.0;
+        }
+        MatchPhase::Corner => todo!(),
     }
 }

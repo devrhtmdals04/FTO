@@ -1,12 +1,12 @@
 import init, { WasmEngine } from "../../../../packages/engine/pkg/engine.js";
 // ↑ 모노레포 경로 예시. 프로젝트 구조에 맞춰 바꿔주세요.
 
-import { SimView, PlayerView, TeamId, PlayerProfile } from "../state";
+import { SimView, PlayerView, TeamId, PlayerProfile, PlayerClassJson } from "../state";
 
 const VIEW_VERSION_EXPECTED = 3;
 const PLAYER_VIEW_SIZE = 32; // x,y,hx,hy,vis,vis_y,vis_xz (7*f32) + team (u8) + padding (3*u8) = 32 bytes
 const N_PLAYERS = 22;
-const SIM_VIEW_SIZE = 4 + 4 + 12 + (N_PLAYERS * PLAYER_VIEW_SIZE); // version+padding (4) + tick (4) + ball (12) + players (22*32)
+const SIM_VIEW_SIZE = 4 + 4 + 12 + (N_PLAYERS * PLAYER_VIEW_SIZE) + 2; // version+padding (4) + tick (4) + ball (12) + players (22*32) + team_states(2)
 
 
 function parseSimView(viewData: Uint8Array): SimView {
@@ -67,10 +67,15 @@ function parseSimView(viewData: Uint8Array): SimView {
     };
   }
 
+  const home_team_state = dv.getUint8(off); off += 1;
+  const away_team_state = dv.getUint8(off); off += 1;
+
   return {
     tick,
     ball: { x: ballX, y: ballY, z: ballZ },
     players,
+    home_team_state,
+    away_team_state,
   };
 }
 
@@ -87,17 +92,28 @@ export function createEngineBridge() {
       // We just need to instantiate the class.
       await init(); // Initialize the WASM module
       engine = new WasmEngine(BigInt(42)); // seed 예시
-      const rawProfiles = engine.getPlayerDataJson();
+      const rawProfiles = engine.getPlayerClassesJson();
       if (rawProfiles) {
         try {
-          const parsed = JSON.parse(rawProfiles) as Array<Omit<PlayerProfile, 'index' | 'team'>>;
-          playerProfiles = parsed.map((profile, idx) => ({
-            ...profile,
-            index: idx,
-            team: (idx < 11 ? 0 : 1) as TeamId,
-          }));
+          const parsed = JSON.parse(rawProfiles) as PlayerClassJson[];
+          parsed.sort((a, b) => a.index - b.index);
+          playerProfiles = parsed.map((entry) => {
+            const base = entry.base_stats;
+            const profile: PlayerProfile = {
+              ...base,
+              index: entry.index,
+              team: (entry.team === 0 ? 0 : 1) as TeamId,
+              ctrl_radius: entry.params.ctrl_radius,
+              role: entry.role,
+              roleId: entry.role_id,
+              quantifiedTactics: entry.quantified_tactics,
+              personalInstructions: entry.personal_instructions ?? null,
+              params: entry.params,
+            };
+            return profile;
+          });
         } catch (profileErr) {
-          console.error("Failed to parse player profile data:", profileErr);
+          console.error("Failed to parse player class data:", profileErr);
           playerProfiles = [];
         }
       }
@@ -115,7 +131,7 @@ export function createEngineBridge() {
       // 초기 로딩 중엔 빈 모션
       return { tick: lastTick, ball: {x:0,y:0,z:0}, players: Array.from({length:22},(_,i)=>( 
         {x:0,y:0,h:[1,0],vis:1,team:(i<11?0:1), state: 0, role: 0} as PlayerView
-      )) };
+      )), home_team_state: 0, away_team_state: 0 };
     }
     // 고정틱
     engine.tick();
@@ -125,7 +141,7 @@ export function createEngineBridge() {
         // 버퍼가 너무 작거나 다른 에러
         return { tick: lastTick, ball: {x:0,y:0,z:0}, players: Array.from({length:22},(_,i)=>( 
             {x:0,y:0,h:[1,0],vis:1,team:(i<11?0:1), state: 0, role: 0} as PlayerView
-        )) };
+        )), home_team_state: 0, away_team_state: 0 };
     }
 
     const simView = parseSimView(viewData);
@@ -147,4 +163,3 @@ export function createEngineBridge() {
       }) as WasmEngine
   }
 }
-

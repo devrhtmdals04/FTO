@@ -1,7 +1,7 @@
 #![allow(clippy::missing_inline_in_public_items)]
 
-use crate::state::compute_params_20;
-use crate::state::PlayerInput20;
+use crate::player_data::{get_baseline_player, get_baseline_player_by_id};
+use crate::state::{compute_params_20, PlayerInput20, N_PER_TEAM};
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
@@ -38,6 +38,22 @@ struct PlayerProfileData {
     #[serde(flatten)]
     base: PlayerInput20,
     ctrl_radius: f32,
+}
+
+#[derive(Serialize)]
+struct PlayerClassExport {
+    index: usize,
+    team: u8,
+    player_id: u32,
+    name: String,
+    role: crate::types::DetailedPlayerRole,
+    #[serde(rename = "role_id")]
+    role_id: u8,
+    quantified_tactics: crate::tactics::QuantifiedTactics,
+    personal_instructions: Option<crate::types::PlayerInstruction>,
+    params: crate::types::PlayerParams,
+    #[serde(rename = "base_stats")]
+    base_stats: PlayerInput20,
 }
 
 #[inline]
@@ -104,6 +120,34 @@ impl WasmEngine {
         self.inner.enqueue_command(cmd);
     }
 
+    #[wasm_bindgen(js_name = getPlayerClassesJson)]
+    pub fn get_player_classes_json(&self) -> String {
+        let mut result = Vec::with_capacity(N_PLAYERS);
+        for idx in 0..N_PLAYERS {
+            if let Some(class) = self.inner.get_player_class(idx) {
+                let team = self.inner.world.p_team[idx];
+                let player_id = self.inner.world.p_player_id[idx];
+                let base_stats = get_baseline_player_by_id(player_id)
+                    .unwrap_or_else(|| get_baseline_player(idx % N_PER_TEAM, team as usize));
+
+                result.push(PlayerClassExport {
+                    index: idx,
+                    team,
+                    player_id,
+                    name: class.name.to_string(),
+                    role: class.role.clone(),
+                    role_id: class.role.to_u8(),
+                    quantified_tactics: class.quantified_tactics,
+                    personal_instructions: class.personal_instructions.clone(),
+                    params: class.params,
+                    base_stats,
+                });
+            }
+        }
+
+        serde_json::to_string(&result).unwrap_or_else(|_| "[]".to_string())
+    }
+
     #[wasm_bindgen(js_name = getPlayerDataJson)]
     pub fn get_player_data_json(&self) -> String {
         let mut all_players_data = Vec::new();
@@ -127,7 +171,7 @@ impl WasmEngine {
     #[wasm_bindgen]
     pub fn view(&self) -> Vec<u8> {
         let world = &self.inner.world;
-        let mut buffer = Vec::with_capacity(724);
+        let mut buffer = Vec::with_capacity(726);
 
         let write_u8 = |buf: &mut Vec<u8>, val: u8| {
             buf.push(val);
@@ -172,6 +216,9 @@ impl WasmEngine {
             write_u8(&mut buffer, state.to_u8()); // fsm_state
             write_u8(&mut buffer, role); // role
         }
+
+        write_u8(&mut buffer, world.home_team_state);
+        write_u8(&mut buffer, world.away_team_state);
 
         buffer
     }

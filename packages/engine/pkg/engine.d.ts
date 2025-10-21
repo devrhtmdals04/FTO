@@ -9,6 +9,7 @@ export class WasmEngine {
   snapshot(): Uint8Array;
   delta(): Uint8Array;
   command(cmd: any): void;
+  getPlayerClassesJson(): string;
   getPlayerDataJson(): string;
   view(): Uint8Array;
 }
@@ -24,6 +25,7 @@ export interface InitOutput {
   readonly wasmengine_snapshot: (a: number) => [number, number];
   readonly wasmengine_delta: (a: number) => [number, number];
   readonly wasmengine_command: (a: number, b: any) => void;
+  readonly wasmengine_getPlayerClassesJson: (a: number) => [number, number];
   readonly wasmengine_getPlayerDataJson: (a: number) => [number, number];
   readonly wasmengine_view: (a: number) => [number, number];
   readonly start: () => void;

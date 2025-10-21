@@ -1,4 +1,5 @@
-use crate::types::{Tactic, OnBallLoose, BlockType};
+use crate::types::{BlockType, OnBallLoose, Tactic};
+use log::info;
 use serde::{Deserialize, Serialize};
 use serde_json;
 
@@ -33,6 +34,10 @@ pub fn load_tactic_from_json(json_data: &str) -> Result<Tactic, serde_json::Erro
 }
 
 pub fn quantify(tactic: &Tactic) -> QuantifiedTactics {
+    info!(
+        "[Tactics] Quantifying tactic {} / {}",
+        tactic.offensive_formation, tactic.defensive_formation
+    );
     let team_tactic = &tactic.team_tactic;
     let mut quantified = QuantifiedTactics::default();
 
@@ -51,7 +56,11 @@ pub fn quantify(tactic: &Tactic) -> QuantifiedTactics {
     };
 
     quantified.long_ball_preference = 1.0 - team_tactic.team_attacking.pass_distance;
-    quantified.build_up_patience = if team_tactic.team_attacking.goalkeeper_engage { 0.7 } else { 0.4 };
+    quantified.build_up_patience = if team_tactic.team_attacking.goalkeeper_engage {
+        0.7
+    } else {
+        0.4
+    };
 
     quantified.clamp()
 }

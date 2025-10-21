@@ -2,6 +2,7 @@ use crate::ai::xt;
 use crate::params::{PITCH_H, PITCH_W};
 use crate::state::{World, N_PER_TEAM, N_PLAYERS};
 use crate::types::{TeamId, Vec2};
+use log::info;
 
 // The data structures for AI perception.
 // These are defined here and used by other AI modules.
@@ -66,9 +67,49 @@ pub struct Perception {
     pub open_pass_targets: Vec<PassTarget>,
     pub free_forward_space: f32,
     pub target_pos: Vec2,
+    pub formation_anchor: Vec2,
 }
 
 // --- Helper Functions for Perception Calculation ---
+
+//this function calculates ball position and movements. this is same for other players, so you aren't need to calculate every players.
+fn check_the_ball_pos() {}
+
+//this function is for last deffender, if your deffence line is 4-4-2, make last 4 players deffenceline except goal keeper.
+fn check_final_line() {}
+
+//this function checks team's final line's height.
+fn check_team_height() {}
+
+//this function checks each 2nearest player distance.
+fn check_player_distance() {}
+
+//this function checks whole team block size.
+fn check_team_block() {}
+
+//this function checks empty place.
+fn check_space() {}
+
+//this function returns playerID in vision.
+fn check_player_in_vision() {}
+
+//this function checks the other player move if the player in vision.
+fn check_player_move() {}
+
+//this function checks opponent player that in dangerous position need to mark.
+fn check_dangerous_player() {}
+
+//this function checks opponent offside line so player can avoid.
+fn check_offside() {}
+
+//this function checks opponent player's vision and angle so that player can predict the player's next movement.
+fn check_opponent_player() {}
+
+//this function calculates body angle to target player, helping calculate posiibility of the action.
+fn check_angle_to_target_player() {}
+
+//this function checks own goal area for GK
+fn check_goal_line() {}
 
 /// Estimates the time for a player to intercept a point on the pitch.
 fn time_to_intercept(op_pos: Vec2, point: Vec2) -> f32 {
@@ -98,7 +139,13 @@ fn lane_open(p0: Vec2, p1: Vec2, opponents: &[PlayerObs]) -> f32 {
 
 // --- Main Perception Building Function ---
 
-pub fn build_perception(world: &World, player_index: usize) -> Perception {
+pub fn build_perception(world: &World, player_index: usize, formation_anchor: Vec2) -> Perception {
+    if player_index % N_PER_TEAM == 0 && world.tick % 200 == 0 {
+        info!(
+            "[AI/Perception] Anchor for player {}: ({:.1}, {:.1})",
+            player_index, formation_anchor.x, formation_anchor.y
+        );
+    }
     let me_pos = world.player_pos(player_index);
     let me_team_id = world.team_id(player_index);
 
@@ -222,7 +269,9 @@ pub fn build_perception(world: &World, player_index: usize) -> Perception {
         let predicted_ball = ball_pos + ball_vel * travel_time;
         predicted_ball
     } else {
-        Vec2::new(ball_pos.x + forward_bias, ball_pos.y + lateral_band)
+        // Blend anchor with simple lateral bias to react to ball position
+        let bias = Vec2::new(forward_bias, lateral_band * 0.25);
+        formation_anchor + bias
     };
 
     let half_w = PITCH_W * 0.5;
@@ -249,5 +298,6 @@ pub fn build_perception(world: &World, player_index: usize) -> Perception {
         open_pass_targets,
         free_forward_space: 10.0, // Placeholder, requires more complex geometry calculation.
         target_pos,
+        formation_anchor,
     }
 }

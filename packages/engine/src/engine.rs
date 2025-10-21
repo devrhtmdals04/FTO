@@ -1,3 +1,6 @@
+use crate::ai::formation::{
+    compute_anchor as compute_dynamic_anchor, FormationContext, FormationPhase,
+};
 use crate::ai::fsm::TeamState;
 use crate::ai::scheduler::Scheduler;
 use crate::commands::{parse_command, Cmd, CommandBuffer, CommandError, ParseError};
@@ -6,10 +9,10 @@ use crate::player_class::PlayerClass;
 use crate::rng::DeterministicRng;
 use crate::rules::{offside::check_offside, referee::update_referee, restarts::handle_restarts};
 use crate::snapshot::{self, DeltaBuffer, HashGuard, QuantizedWorld, SnapshotBuffer};
-use crate::state::{World, N_PER_TEAM, N_PLAYERS};
+use crate::state::{World, N_PER_TEAM, N_PLAYERS, N_TEAMS};
 use crate::tactics::{load_tactic_from_json, quantify};
-use crate::types::{BallMode, Tactic, TeamId, Vec2};
-use log::info;
+use crate::types::{BallMode, MatchPhase, Tactic, TeamId, Vec2};
+use log::{info, warn};
 
 pub struct Engine {
     pub world: World,
@@ -21,11 +24,12 @@ pub struct Engine {
     pub ai_active: Vec<bool>,
     last_hash: [u8; 32],
     last_quantized: Option<QuantizedWorld>,
+    team_tactics: [Tactic; N_TEAMS],
 }
 
 impl Engine {
     pub fn new(seed: u64) -> Self {
-        let mut world = World::new(seed);
+        let world = World::new(seed);
 
         // -- Tactics Initialization --
         let dummy_tactic_json = r#"
@@ -83,46 +87,36 @@ impl Engine {
         let home_tactic: Tactic = load_tactic_from_json(dummy_tactic_json).unwrap();
         let away_tactic: Tactic = load_tactic_from_json(dummy_tactic_json).unwrap(); // Using same for now
 
-        world.initialize_params(&home_tactic.lineup, &away_tactic.lineup);
-
-        let home_quantified = quantify(&home_tactic);
-        let away_quantified = quantify(&away_tactic);
-
-        world.tactics[TeamId::Home.index()] = home_quantified;
-        world.tactics[TeamId::Away.index()] = away_quantified;
-
-        let player_classes: Vec<PlayerClass> = (0..N_PLAYERS)
-            .map(|i| {
-                let team_id = TeamId::from_index(i / N_PER_TEAM);
-                let (tactic, quantified) = if team_id == TeamId::Home {
-                    (&home_tactic, &home_quantified)
-                } else {
-                    (&away_tactic, &away_quantified)
-                };
-                PlayerClass::new(&world, tactic, quantified, i)
-            })
-            .collect();
-
-        info!("Player 5 Class: {:?}", player_classes[5]);
-        info!("Player 10 Class: {:?}", player_classes[10]);
-
         let mut engine = Self {
             world,
             _rng: DeterministicRng::new(seed),
             commands: CommandBuffer::new(),
             scheduler: Scheduler::new(),
             physics: PhysicsContext::new(),
-            player_classes,
+            player_classes: Vec::new(),
             ai_active: vec![true; N_PLAYERS],
             last_hash: [0; 32],
             last_quantized: None,
+            team_tactics: [home_tactic.clone(), away_tactic.clone()],
         };
+        info!("[Engine] Rebuilding initial tactical state");
+        engine.rebuild_tactical_state();
+
+        if let Some(class) = engine.player_classes.get(5) {
+            info!("Player 5 Class: {:?}", class);
+        }
+        if let Some(class) = engine.player_classes.get(10) {
+            info!("Player 10 Class: {:?}", class);
+        }
         engine.update_hash();
         engine
     }
 
     pub fn tick(&mut self) {
         self.world.tick();
+        if self.world.tick % 50 == 0 {
+            info!("[Engine] Tick {}", self.world.tick);
+        }
         self.scheduler.step();
         self.world.advance_overrides();
         self.process_commands();
@@ -145,6 +139,9 @@ impl Engine {
         let home_team_state = self.determine_team_state(TeamId::Home);
         let away_team_state = self.determine_team_state(TeamId::Away);
 
+        self.world.home_team_state = home_team_state.to_u8();
+        self.world.away_team_state = away_team_state.to_u8();
+
         for i in 0..N_PLAYERS {
             if self.scheduler.should_evaluate(i) && self.ai_active[i] {
                 let team_state = if self.player_classes[i].team_id == TeamId::Home {
@@ -163,14 +160,69 @@ impl Engine {
     }
 
     fn determine_team_state(&self, team_id: TeamId) -> TeamState {
-        let possession_team = self.world.possession;
-        if possession_team < 0 {
-            return TeamState::Transition;
+        let possession_team_idx = self.world.possession;
+        let ball_pos_x = self.world.ball_pos().x;
+
+        // 1. Check for set-piece situations first
+        match self.world.match_phase {
+            MatchPhase::PreKickoff | MatchPhase::Kickoff => {
+                return if possession_team_idx == team_id.index() as i8 {
+                    TeamState::KickOffAttack
+                } else {
+                    TeamState::KickOFfDeffence
+                };
+            }
+            MatchPhase::Corner => {
+                return if possession_team_idx == team_id.index() as i8 {
+                    TeamState::CornerAttack
+                } else {
+                    TeamState::CornerDeffence
+                };
+            }
+            _ => { /* Not a set piece, proceed to in-play logic */ }
         }
-        if possession_team == team_id.index() as i8 {
-            return TeamState::Attacking;
+
+        // 2. In-play logic based on possession and ball position
+        let pitch_len = 105.0; // Example pitch length
+        let defensive_third_x = -pitch_len / 6.0;
+        let attacking_third_x = pitch_len / 6.0;
+
+        let (my_defensive_third, my_attacking_third) = if team_id == TeamId::Home {
+            (defensive_third_x, attacking_third_x)
         } else {
-            return TeamState::Defending;
+            (-attacking_third_x, -defensive_third_x)
+        };
+
+        if possession_team_idx < 0 {
+            // No one has clear possession. Could be GetBall or LoseBall.
+            // For simplicity, we'll need a more robust way to track possession changes.
+            // Let's default to a defensive mindset for now.
+            return TeamState::MidBlock;
+        }
+
+        let has_possession = possession_team_idx == team_id.index() as i8;
+
+        if has_possession {
+            if (team_id == TeamId::Home && ball_pos_x > my_attacking_third)
+                || (team_id == TeamId::Away && ball_pos_x < my_attacking_third)
+            {
+                TeamState::FinalThird
+            } else {
+                TeamState::BuildUp // Covers own half and middle third
+            }
+        } else {
+            // Opponent has the ball
+            if (team_id == TeamId::Home && ball_pos_x < my_defensive_third)
+                || (team_id == TeamId::Away && ball_pos_x > my_defensive_third)
+            {
+                TeamState::LowBlock // Opponent is in our defensive third
+            } else if (team_id == TeamId::Home && ball_pos_x > my_attacking_third)
+                || (team_id == TeamId::Away && ball_pos_x < my_attacking_third)
+            {
+                TeamState::HighBlock // Opponent is in their own third (we press high)
+            } else {
+                TeamState::MidBlock // Opponent is in the middle
+            }
         }
     }
 
@@ -214,11 +266,11 @@ impl Engine {
         let commands_to_process: Vec<Cmd> = self.commands.drain_ready(self.world.tick).collect();
         for cmd in commands_to_process {
             match cmd {
-                Cmd::TacticsSet(tactics) => {
-                    // TODO: This should also update player_classes
-                    self.world.tactics[TeamId::Home.index()] = tactics;
+                Cmd::TacticsSet { team, tactic } => {
+                    self.apply_tactic_update(team, tactic);
                 }
                 Cmd::RoleOverride { pid, params, ttl } => {
+                    info!("[Engine] Applying role_override pid {} ttl {}", pid, ttl);
                     if let Some(slot) = self.world.prole_override.get_mut(pid as usize) {
                         slot.params = params;
                         slot.ttl = ttl;
@@ -230,6 +282,7 @@ impl Engine {
                     ty,
                     loft,
                 } => {
+                    info!("[Engine] Lofted pass by pid {}", player_id);
                     self.apply_ball_command(
                         player_id,
                         Vec2::new(tx, ty),
@@ -239,6 +292,7 @@ impl Engine {
                     );
                 }
                 Cmd::GroundPass { player_id, tx, ty } => {
+                    info!("[Engine] Ground pass by pid {}", player_id);
                     self.apply_ball_command(player_id, Vec2::new(tx, ty), 11.0, 0.0, false);
                 }
                 Cmd::Shoot {
@@ -247,6 +301,10 @@ impl Engine {
                     ty,
                     power,
                 } => {
+                    info!(
+                        "[Engine] Shoot command pid {} power {:.2}",
+                        player_id, power
+                    );
                     self.apply_ball_command(
                         player_id,
                         Vec2::new(tx, ty),
@@ -256,11 +314,13 @@ impl Engine {
                     );
                 }
                 Cmd::MovePlayerVelocity { pid, vx, vy } => {
+                    info!("[Engine] Move velocity command pid {}", pid);
                     if let Some(pcmd) = self.world.pcommand.get_mut(pid as usize) {
                         pcmd.target_vel = Vec2::new(vx, vy);
                     }
                 }
                 Cmd::MovePlayerTarget { pid, tx, ty } => {
+                    info!("[Engine] Move target command pid {}", pid);
                     if let Some(pcmd) = self.world.pcommand.get_mut(pid as usize) {
                         let player_pos =
                             Vec2::new(self.world.px[pid as usize], self.world.py[pid as usize]);
@@ -272,6 +332,91 @@ impl Engine {
                 }
             }
         }
+    }
+
+    fn apply_tactic_update(&mut self, team: TeamId, tactic: Tactic) {
+        info!("[Engine] Updating tactics for {:?}", team);
+        if tactic.lineup.len() != N_PER_TEAM {
+            warn!(
+                "Ignored tactics update for {:?}: lineup length {} does not match {}",
+                team,
+                tactic.lineup.len(),
+                N_PER_TEAM
+            );
+            return;
+        }
+        if tactic.roles.len() != N_PER_TEAM {
+            warn!(
+                "Ignored tactics update for {:?}: roles length {} does not match {}",
+                team,
+                tactic.roles.len(),
+                N_PER_TEAM
+            );
+            return;
+        }
+
+        self.team_tactics[team.index()] = tactic;
+        self.rebuild_tactical_state();
+    }
+
+    fn rebuild_tactical_state(&mut self) {
+        info!("[Engine] Rebuilding tactical state");
+        if self.team_tactics[TeamId::Home.index()].lineup.len() != N_PER_TEAM
+            || self.team_tactics[TeamId::Away.index()].lineup.len() != N_PER_TEAM
+        {
+            warn!("Cannot rebuild tactical state: invalid lineup length");
+            return;
+        }
+        if self.team_tactics[TeamId::Home.index()].roles.len() != N_PER_TEAM
+            || self.team_tactics[TeamId::Away.index()].roles.len() != N_PER_TEAM
+        {
+            warn!("Cannot rebuild tactical state: invalid roles length");
+            return;
+        }
+
+        let home_lineup = self.team_tactics[TeamId::Home.index()].lineup.clone();
+        let away_lineup = self.team_tactics[TeamId::Away.index()].lineup.clone();
+
+        self.world.initialize_params(&home_lineup, &away_lineup);
+
+        let home_tactic = &self.team_tactics[TeamId::Home.index()];
+        let away_tactic = &self.team_tactics[TeamId::Away.index()];
+
+        let home_quantified = quantify(home_tactic);
+        let away_quantified = quantify(away_tactic);
+
+        self.world.tactics[TeamId::Home.index()] = home_quantified;
+        self.world.tactics[TeamId::Away.index()] = away_quantified;
+
+        self.player_classes = (0..N_PLAYERS)
+            .map(|i| {
+                let team_id = TeamId::from_index(i / N_PER_TEAM);
+                let (tactic, quantified) = if team_id == TeamId::Home {
+                    (home_tactic, &home_quantified)
+                } else {
+                    (away_tactic, &away_quantified)
+                };
+                PlayerClass::new(&self.world, tactic, quantified, i)
+            })
+            .collect();
+
+        for (idx, class) in self.player_classes.iter_mut().enumerate() {
+            let phase = FormationPhase::Attack;
+            let formation_str = class.formation_string_for_phase(phase);
+            let ctx = FormationContext::new(formation_str, &class.quantified_tactics);
+            let anchor = compute_dynamic_anchor(
+                &ctx,
+                class.team_id,
+                &class.role,
+                class.lineup_slot,
+                phase,
+                &self.world,
+            );
+            class.formation_anchor = anchor;
+            self.world.set_player_pos(idx, anchor);
+        }
+
+        self.physics.rebuild_spatial(&self.world);
     }
 
     fn apply_ball_command(

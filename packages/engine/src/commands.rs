@@ -1,12 +1,15 @@
 use crate::state::N_PLAYERS;
-use crate::tactics::{quantify, QuantifiedTactics};
-use crate::types::{RoleParams, Tactic};
+use crate::types::{RoleParams, Tactic, TeamId};
+use log::info;
 use serde::Deserialize;
 use wasm_bindgen::JsValue;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum Cmd {
-    TacticsSet(QuantifiedTactics),
+    TacticsSet {
+        team: TeamId,
+        tactic: Tactic,
+    },
     RoleOverride {
         pid: u8,
         params: RoleParams,
@@ -69,7 +72,13 @@ struct CommandFields {
 
 #[derive(Deserialize)]
 struct TacticsCmd {
-    tactics: Tactic,
+    #[serde(default = "default_team_id")]
+    team: TeamId,
+    tactic: Tactic,
+}
+
+fn default_team_id() -> TeamId {
+    TeamId::Home
 }
 
 #[derive(Deserialize)]
@@ -122,11 +131,19 @@ pub fn parse_command(js_value: JsValue) -> Result<ParsedCommand, ParseError> {
     let cmd = match fields.ty.as_str() {
         "tactics_set" => {
             let val: TacticsCmd = serde_wasm_bindgen::from_value(js_value)?;
-            let quantified_tactics = quantify(&val.tactics);
-            Cmd::TacticsSet(quantified_tactics)
+            info!(
+                "[Commands] tactics_set for {:?} (lineup {})",
+                val.team,
+                val.tactic.lineup.len()
+            );
+            Cmd::TacticsSet {
+                team: val.team,
+                tactic: val.tactic,
+            }
         }
         "role_override" => {
             let val: RoleOverrideCmd = serde_wasm_bindgen::from_value(js_value)?;
+            info!("[Commands] role_override pid {} ttl {}", val.pid, val.ttl);
             if val.pid >= N_PLAYERS as u8 {
                 return Err(ParseError::DeserializeError("invalid pid".to_string()));
             }
@@ -138,6 +155,10 @@ pub fn parse_command(js_value: JsValue) -> Result<ParsedCommand, ParseError> {
         }
         "lofted_pass" => {
             let val: LoftedPassCmd = serde_wasm_bindgen::from_value(js_value)?;
+            info!(
+                "[Commands] lofted_pass pid {} target ({:.2}, {:.2})",
+                val.pid, val.tx, val.ty
+            );
             Cmd::LoftedPass {
                 player_id: val.pid,
                 tx: val.tx,
@@ -147,6 +168,10 @@ pub fn parse_command(js_value: JsValue) -> Result<ParsedCommand, ParseError> {
         }
         "ground_pass" => {
             let val: GroundPassCmd = serde_wasm_bindgen::from_value(js_value)?;
+            info!(
+                "[Commands] ground_pass pid {} target ({:.2}, {:.2})",
+                val.pid, val.tx, val.ty
+            );
             Cmd::GroundPass {
                 player_id: val.pid,
                 tx: val.tx,
@@ -155,6 +180,10 @@ pub fn parse_command(js_value: JsValue) -> Result<ParsedCommand, ParseError> {
         }
         "shoot" => {
             let val: ShootCmd = serde_wasm_bindgen::from_value(js_value)?;
+            info!(
+                "[Commands] shoot pid {} target ({:.2}, {:.2}) power {:.2}",
+                val.pid, val.tx, val.ty, val.power
+            );
             Cmd::Shoot {
                 player_id: val.pid,
                 tx: val.tx,
@@ -168,16 +197,28 @@ pub fn parse_command(js_value: JsValue) -> Result<ParsedCommand, ParseError> {
                 return Err(ParseError::DeserializeError("invalid pid".to_string()));
             }
             match (val.vx, val.vy, val.tx, val.ty) {
-                (Some(vx), Some(vy), _, _) => Cmd::MovePlayerVelocity {
-                    pid: val.pid,
-                    vx,
-                    vy,
-                },
-                (_, _, Some(tx), Some(ty)) => Cmd::MovePlayerTarget {
-                    pid: val.pid,
-                    tx,
-                    ty,
-                },
+                (Some(vx), Some(vy), _, _) => {
+                    info!(
+                        "[Commands] move_player velocity pid {} ({:.2}, {:.2})",
+                        val.pid, vx, vy
+                    );
+                    Cmd::MovePlayerVelocity {
+                        pid: val.pid,
+                        vx,
+                        vy,
+                    }
+                }
+                (_, _, Some(tx), Some(ty)) => {
+                    info!(
+                        "[Commands] move_player target pid {} ({:.2}, {:.2})",
+                        val.pid, tx, ty
+                    );
+                    Cmd::MovePlayerTarget {
+                        pid: val.pid,
+                        tx,
+                        ty,
+                    }
+                }
                 _ => {
                     return Err(ParseError::DeserializeError(
                         "move_player requires either vx/vy or tx/ty".to_string(),
@@ -208,17 +249,15 @@ pub enum CommandError {
 
 #[derive(Debug)]
 pub struct CommandBuffer {
-    cmds: [Option<ParsedCommand>; MAX_COMMANDS],
+    cmds: Vec<Option<ParsedCommand>>,
     len: usize,
 }
 
 impl CommandBuffer {
     pub fn new() -> Self {
-        const EMPTY: Option<ParsedCommand> = None;
-        Self {
-            cmds: [EMPTY; MAX_COMMANDS],
-            len: 0,
-        }
+        let mut cmds = Vec::with_capacity(MAX_COMMANDS);
+        cmds.resize_with(MAX_COMMANDS, || None);
+        Self { cmds, len: 0 }
     }
 
     pub fn push(

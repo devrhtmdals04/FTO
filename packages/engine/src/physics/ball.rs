@@ -6,10 +6,14 @@ use crate::physics::collisions::reflect;
 use crate::spatial::SpatialHash;
 use crate::state::{World, N_PLAYERS};
 use crate::types::{BallMode, Vec2};
+use log::info;
 use rand::Rng;
 use rand_pcg::Pcg32;
 
 pub fn step_ball(world: &mut World, grid: &SpatialHash, rng: &mut Pcg32) {
+    if world.tick % 50 == 0 {
+        info!("[Physics/Ball] mode {:?}", world.ball_mode());
+    }
     match world.ball_mode() {
         BallMode::Ground => step_ground_ball(world),
         BallMode::Air => step_air_ball(world, grid, rng),

@@ -2,9 +2,14 @@ use crate::params::{DT, PITCH_H, PITCH_W, R_BODY};
 use crate::physics::collisions::separate_overlap;
 use crate::state::{World, N_PLAYERS};
 use crate::types::Vec2;
+use log::info;
 
 pub fn step_players(world: &mut World, ai_active: &[bool]) {
     let dt = DT;
+    if world.tick % 50 == 0 {
+        let active = ai_active.iter().filter(|a| **a).count();
+        info!("[Physics/Player] Stepping players, active AI {}", active);
+    }
     for idx in 0..N_PLAYERS {
         let has_manual_input = world.pcommand[idx].target_vel.norm_squared() > 1e-6;
         if ai_active[idx] || has_manual_input {

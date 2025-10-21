@@ -192,8 +192,10 @@ impl Aabb {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MatchPhase {
     PreKickoff,
+    Kickoff,
     InPlay,
     Restart,
+    Corner,
 }
 
 impl Default for MatchPhase {

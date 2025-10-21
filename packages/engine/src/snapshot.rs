@@ -78,6 +78,8 @@ pub struct QuantizedWorld {
     pub match_phase: u8,
     pub home_score: u16,
     pub away_score: u16,
+    pub home_team_state: u8,
+    pub away_team_state: u8,
     pub ball: QuantizedBall,
     pub players: [QuantizedPlayer; N_PLAYERS],
 }
@@ -137,6 +139,20 @@ pub fn write_delta(prev: &QuantizedWorld, curr: &QuantizedWorld, buf: &mut Delta
     buf.write_u8(curr.match_phase);
     buf.write_u16(curr.home_score);
     buf.write_u16(curr.away_score);
+
+    if curr.home_team_state != prev.home_team_state {
+        buf.write_u8(1);
+        buf.write_u8(curr.home_team_state);
+    } else {
+        buf.write_u8(0);
+    }
+
+    if curr.away_team_state != prev.away_team_state {
+        buf.write_u8(1);
+        buf.write_u8(curr.away_team_state);
+    } else {
+        buf.write_u8(0);
+    }
 
     let mut ball_mask: u16 = 0;
     for i in 0..3 {
@@ -231,6 +247,8 @@ pub fn quantize_world(world: &World) -> QuantizedWorld {
         match_phase: match_phase_to_u8(world.match_phase),
         home_score: world.home_score,
         away_score: world.away_score,
+        home_team_state: world.home_team_state,
+        away_team_state: world.away_team_state,
         ball,
         players,
     }
@@ -242,6 +260,8 @@ fn serialize_full(world: &QuantizedWorld, buf: &mut SnapshotBuffer) {
     buf.write_u8(world.match_phase);
     buf.write_u16(world.home_score);
     buf.write_u16(world.away_score);
+    buf.write_u8(world.home_team_state);
+    buf.write_u8(world.away_team_state);
 
     for coord in &world.ball.pos {
         buf.write_i16(*coord);
@@ -270,7 +290,9 @@ fn quantize(value: f32, scale: f32) -> i16 {
 fn match_phase_to_u8(phase: MatchPhase) -> u8 {
     match phase {
         MatchPhase::PreKickoff => 0,
-        MatchPhase::InPlay => 1,
-        MatchPhase::Restart => 2,
+        MatchPhase::Kickoff => 1,
+        MatchPhase::InPlay => 2,
+        MatchPhase::Restart => 3,
+        MatchPhase::Corner => 4,
     }
 }

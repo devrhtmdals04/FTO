@@ -1,4 +1,5 @@
 pub mod actions;
+pub mod formation;
 pub mod fsm;
 pub mod perception;
 pub mod scheduler;

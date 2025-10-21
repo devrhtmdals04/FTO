@@ -1,3 +1,4 @@
+use crate::ai::fsm::TeamState;
 use crate::params::{DT, PITCH_H, PITCH_W, R_BODY};
 use crate::player_data::get_baseline_player_by_id;
 use crate::tactics::QuantifiedTactics;
@@ -5,6 +6,7 @@ use crate::types::{
     BallMode, Foot, MatchPhase, PlayerCommandState, PlayerParams, PlayerRole, RoleOverrideState,
     TeamId, Vec2,
 };
+use log::info;
 use serde::Serialize;
 
 // Constants for the number of players and teams.
@@ -62,6 +64,8 @@ pub struct World {
     pub home_score: u16,
     pub away_score: u16,
     pub possession: i8, // Which team has possession (-1 for none, 0 for Home, 1 for Away).
+    pub home_team_state: u8,
+    pub away_team_state: u8,
 
     // --- Team and Player Data ---
     pub tactics: [QuantifiedTactics; N_TEAMS], // Tactical settings for each team.
@@ -110,6 +114,8 @@ impl World {
             home_score: 0,
             away_score: 0,
             possession: TeamId::Home.index() as i8,
+            home_team_state: TeamState::KickOffAttack.to_u8(),
+            away_team_state: TeamState::KickOFfDeffence.to_u8(),
             tactics: [QuantifiedTactics::default(); N_TEAMS],
             p_player_id: [0; N_PLAYERS],
             p_team: [0; N_PLAYERS],
@@ -131,6 +137,11 @@ impl World {
 
     /// Initializes the physics parameters for all players based on their baseline stats.
     pub fn initialize_params(&mut self, home_lineup: &[u32], away_lineup: &[u32]) {
+        info!(
+            "[State] Initializing params (home roster {}, away roster {})",
+            home_lineup.len(),
+            away_lineup.len()
+        );
         for i in 0..N_PER_TEAM {
             if let Some(input) = get_baseline_player_by_id(home_lineup[i]) {
                 self.p_params[i] = compute_params_20(&input);

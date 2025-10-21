@@ -25,7 +25,13 @@ function createEmptySimView(): SimView {
     state: 0,
     role: 0,
   }));
-  return { tick: 0, ball: { x: 0, y: 0, z: 0 }, players };
+  return {
+    tick: 0,
+    ball: { x: 0, y: 0, z: 0 }, 
+    players,
+    home_team_state: 0,
+    away_team_state: 0
+  };
 }
 
 interface UIElements {
@@ -194,7 +200,7 @@ export class ViewerApp {
     }
 
     this.sceneContext.controls.update(dt);
-    this.hud.update(this.curr.tick, this.fps);
+    this.hud.update(this.curr, this.fps);
     this.sceneContext.renderer.render(this.sceneContext.scene, this.sceneContext.camera);
 
     this.frameHandle = requestAnimationFrame(this.onFrame);
