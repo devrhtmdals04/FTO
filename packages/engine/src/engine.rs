@@ -1,8 +1,6 @@
-use crate::ai::formation::{
-    compute_anchor as compute_dynamic_anchor, FormationContext, FormationPhase,
-};
-use crate::ai::fsm::TeamState;
-use crate::ai::scheduler::Scheduler;
+use crate::ai::phase::evaluate_team_phase;
+use crate::ai::tactics::TacticModel;
+use crate::ai::{kickoff_positions, PhaseLayout, Scheduler};
 use crate::commands::{parse_command, Cmd, CommandBuffer, CommandError, ParseError};
 use crate::physics::{ball::step_ball, player::step_players, PhysicsContext};
 use crate::player_class::PlayerClass;
@@ -10,9 +8,9 @@ use crate::rng::DeterministicRng;
 use crate::rules::{offside::check_offside, referee::update_referee, restarts::handle_restarts};
 use crate::snapshot::{self, DeltaBuffer, HashGuard, QuantizedWorld, SnapshotBuffer};
 use crate::state::{World, N_PER_TEAM, N_PLAYERS, N_TEAMS};
-use crate::tactics::{load_tactic_from_json, quantify};
-use crate::types::{BallMode, MatchPhase, Tactic, TeamId, Vec2};
+use crate::types::{BallMode, Tactic, TeamId, Vec2};
 use log::{info, warn};
+use std::f32::consts::PI;
 
 pub struct Engine {
     pub world: World,
@@ -24,7 +22,8 @@ pub struct Engine {
     pub ai_active: Vec<bool>,
     last_hash: [u8; 32],
     last_quantized: Option<QuantizedWorld>,
-    team_tactics: [Tactic; N_TEAMS],
+    team_tactics: [TacticModel; N_TEAMS],
+    kickoff_pass_dispatched: bool,
 }
 
 impl Engine {
@@ -84,8 +83,8 @@ impl Engine {
         }
         "#;
 
-        let home_tactic: Tactic = load_tactic_from_json(dummy_tactic_json).unwrap();
-        let away_tactic: Tactic = load_tactic_from_json(dummy_tactic_json).unwrap(); // Using same for now
+        let home_model = TacticModel::parse_json(dummy_tactic_json).unwrap();
+        let away_model = TacticModel::parse_json(dummy_tactic_json).unwrap(); // Using same for now
 
         let mut engine = Self {
             world,
@@ -97,7 +96,8 @@ impl Engine {
             ai_active: vec![true; N_PLAYERS],
             last_hash: [0; 32],
             last_quantized: None,
-            team_tactics: [home_tactic.clone(), away_tactic.clone()],
+            team_tactics: [home_model.clone(), away_model.clone()],
+            kickoff_pass_dispatched: false,
         };
         info!("[Engine] Rebuilding initial tactical state");
         engine.rebuild_tactical_state();
@@ -129,6 +129,7 @@ impl Engine {
         );
         self.update_possession();
         handle_restarts(&mut self.world);
+        self.sync_restart_layouts();
         update_referee(&mut self.world);
         let _offside = check_offside(&self.world);
         self.update_hash();
@@ -136,92 +137,25 @@ impl Engine {
     }
 
     fn update_ai(&mut self) {
-        let home_team_state = self.determine_team_state(TeamId::Home);
-        let away_team_state = self.determine_team_state(TeamId::Away);
+        let home_phase = evaluate_team_phase(&self.world, TeamId::Home);
+        let away_phase = evaluate_team_phase(&self.world, TeamId::Away);
 
-        self.world.home_team_state = home_team_state.to_u8();
-        self.world.away_team_state = away_team_state.to_u8();
+        self.world.home_team_phase = home_phase.to_u8();
+        self.world.away_team_phase = away_phase.to_u8();
 
         for i in 0..N_PLAYERS {
             if self.scheduler.should_evaluate(i) && self.ai_active[i] {
-                let team_state = if self.player_classes[i].team_id == TeamId::Home {
-                    home_team_state
+                let team_phase = if self.player_classes[i].team_id == TeamId::Home {
+                    home_phase
                 } else {
-                    away_team_state
+                    away_phase
                 };
 
-                if let Some(cmd) = self.player_classes[i].update_ai(&mut self.world, team_state) {
+                if let Some(cmd) = self.player_classes[i].update_ai(&self.world, team_phase) {
                     self.commands
                         .push(self.world.tick, self.world.tick + 1, cmd)
                         .ok();
                 }
-            }
-        }
-    }
-
-    fn determine_team_state(&self, team_id: TeamId) -> TeamState {
-        let possession_team_idx = self.world.possession;
-        let ball_pos_x = self.world.ball_pos().x;
-
-        // 1. Check for set-piece situations first
-        match self.world.match_phase {
-            MatchPhase::PreKickoff | MatchPhase::Kickoff => {
-                return if possession_team_idx == team_id.index() as i8 {
-                    TeamState::KickOffAttack
-                } else {
-                    TeamState::KickOFfDeffence
-                };
-            }
-            MatchPhase::Corner => {
-                return if possession_team_idx == team_id.index() as i8 {
-                    TeamState::CornerAttack
-                } else {
-                    TeamState::CornerDeffence
-                };
-            }
-            _ => { /* Not a set piece, proceed to in-play logic */ }
-        }
-
-        // 2. In-play logic based on possession and ball position
-        let pitch_len = 105.0; // Example pitch length
-        let defensive_third_x = -pitch_len / 6.0;
-        let attacking_third_x = pitch_len / 6.0;
-
-        let (my_defensive_third, my_attacking_third) = if team_id == TeamId::Home {
-            (defensive_third_x, attacking_third_x)
-        } else {
-            (-attacking_third_x, -defensive_third_x)
-        };
-
-        if possession_team_idx < 0 {
-            // No one has clear possession. Could be GetBall or LoseBall.
-            // For simplicity, we'll need a more robust way to track possession changes.
-            // Let's default to a defensive mindset for now.
-            return TeamState::MidBlock;
-        }
-
-        let has_possession = possession_team_idx == team_id.index() as i8;
-
-        if has_possession {
-            if (team_id == TeamId::Home && ball_pos_x > my_attacking_third)
-                || (team_id == TeamId::Away && ball_pos_x < my_attacking_third)
-            {
-                TeamState::FinalThird
-            } else {
-                TeamState::BuildUp // Covers own half and middle third
-            }
-        } else {
-            // Opponent has the ball
-            if (team_id == TeamId::Home && ball_pos_x < my_defensive_third)
-                || (team_id == TeamId::Away && ball_pos_x > my_defensive_third)
-            {
-                TeamState::LowBlock // Opponent is in our defensive third
-            } else if (team_id == TeamId::Home && ball_pos_x > my_attacking_third)
-                || (team_id == TeamId::Away && ball_pos_x < my_attacking_third)
-            {
-                TeamState::HighBlock // Opponent is in their own third (we press high)
-            } else {
-                TeamState::MidBlock // Opponent is in the middle
             }
         }
     }
@@ -355,67 +289,44 @@ impl Engine {
             return;
         }
 
-        self.team_tactics[team.index()] = tactic;
+        let model = TacticModel::from_tactic(tactic);
+        self.team_tactics[team.index()] = model;
         self.rebuild_tactical_state();
     }
 
     fn rebuild_tactical_state(&mut self) {
         info!("[Engine] Rebuilding tactical state");
-        if self.team_tactics[TeamId::Home.index()].lineup.len() != N_PER_TEAM
-            || self.team_tactics[TeamId::Away.index()].lineup.len() != N_PER_TEAM
-        {
+        let home_model = &self.team_tactics[TeamId::Home.index()];
+        let away_model = &self.team_tactics[TeamId::Away.index()];
+
+        if home_model.lineup().len() != N_PER_TEAM || away_model.lineup().len() != N_PER_TEAM {
             warn!("Cannot rebuild tactical state: invalid lineup length");
             return;
         }
-        if self.team_tactics[TeamId::Home.index()].roles.len() != N_PER_TEAM
-            || self.team_tactics[TeamId::Away.index()].roles.len() != N_PER_TEAM
-        {
+        if home_model.roles().len() != N_PER_TEAM || away_model.roles().len() != N_PER_TEAM {
             warn!("Cannot rebuild tactical state: invalid roles length");
             return;
         }
 
-        let home_lineup = self.team_tactics[TeamId::Home.index()].lineup.clone();
-        let away_lineup = self.team_tactics[TeamId::Away.index()].lineup.clone();
+        self.world
+            .initialize_params(home_model.lineup(), away_model.lineup());
 
-        self.world.initialize_params(&home_lineup, &away_lineup);
-
-        let home_tactic = &self.team_tactics[TeamId::Home.index()];
-        let away_tactic = &self.team_tactics[TeamId::Away.index()];
-
-        let home_quantified = quantify(home_tactic);
-        let away_quantified = quantify(away_tactic);
-
-        self.world.tactics[TeamId::Home.index()] = home_quantified;
-        self.world.tactics[TeamId::Away.index()] = away_quantified;
+        self.world.tactics[TeamId::Home.index()] = home_model.quantified();
+        self.world.tactics[TeamId::Away.index()] = away_model.quantified();
 
         self.player_classes = (0..N_PLAYERS)
             .map(|i| {
                 let team_id = TeamId::from_index(i / N_PER_TEAM);
-                let (tactic, quantified) = if team_id == TeamId::Home {
-                    (home_tactic, &home_quantified)
+                let model = if team_id == TeamId::Home {
+                    home_model
                 } else {
-                    (away_tactic, &away_quantified)
+                    away_model
                 };
-                PlayerClass::new(&self.world, tactic, quantified, i)
+                PlayerClass::new(&self.world, model, i)
             })
             .collect();
 
-        for (idx, class) in self.player_classes.iter_mut().enumerate() {
-            let phase = FormationPhase::Attack;
-            let formation_str = class.formation_string_for_phase(phase);
-            let ctx = FormationContext::new(formation_str, &class.quantified_tactics);
-            let anchor = compute_dynamic_anchor(
-                &ctx,
-                class.team_id,
-                &class.role,
-                class.lineup_slot,
-                phase,
-                &self.world,
-            );
-            class.formation_anchor = anchor;
-            self.world.set_player_pos(idx, anchor);
-        }
-
+        self.align_players_for_kickoff();
         self.physics.rebuild_spatial(&self.world);
     }
 
@@ -464,6 +375,115 @@ impl Engine {
             guard.update(&self.world.py[idx].to_le_bytes());
         }
         self.last_hash = guard.finalize();
+    }
+
+    fn align_players_for_kickoff(&mut self) {
+        let attacking_team = if self.world.possession >= 0 {
+            TeamId::from_index(self.world.possession as usize)
+        } else {
+            TeamId::Home
+        };
+
+        let home_layout = kickoff_positions(
+            TeamId::Home,
+            attacking_team == TeamId::Home,
+            &self.player_classes[0].quantified_tactics,
+        );
+        self.apply_team_layout(TeamId::Home, &home_layout);
+
+        let away_layout = kickoff_positions(
+            TeamId::Away,
+            attacking_team == TeamId::Away,
+            &self.player_classes[N_PER_TEAM].quantified_tactics,
+        );
+        self.apply_team_layout(TeamId::Away, &away_layout);
+    }
+
+    fn apply_team_layout(&mut self, team: TeamId, layout: &PhaseLayout) {
+        let base_index = match team {
+            TeamId::Home => 0,
+            TeamId::Away => N_PER_TEAM,
+        };
+        let facing = if team == TeamId::Home { 0.0 } else { PI };
+
+        for (slot, position) in layout.positions.iter().enumerate() {
+            let idx = base_index + slot;
+            self.world.set_player_pos(idx, *position);
+            self.world.set_player_vel(idx, Vec2::ZERO);
+            self.world.pfacing[idx] = facing;
+            self.world.pcommand[idx].target_vel = Vec2::ZERO;
+        }
+
+        for slot in 0..N_PER_TEAM {
+            let idx = base_index + slot;
+            if let Some(class) = self.player_classes.get_mut(idx) {
+                let anchor = self.world.player_pos(idx);
+                class.reset_anchor(anchor);
+            }
+        }
+    }
+
+    fn sync_restart_layouts(&mut self) {
+        use crate::types::MatchPhase;
+        match self.world.match_phase {
+            MatchPhase::PreKickoff | MatchPhase::Kickoff => {
+                self.align_players_for_kickoff();
+                self.maybe_issue_kickoff_pass();
+            }
+            _ => {
+                self.kickoff_pass_dispatched = false;
+            }
+        }
+    }
+
+    fn maybe_issue_kickoff_pass(&mut self) {
+        use crate::types::MatchPhase;
+
+        if self.kickoff_pass_dispatched {
+            return;
+        }
+
+        if !matches!(
+            self.world.match_phase,
+            MatchPhase::PreKickoff | MatchPhase::Kickoff
+        ) {
+            self.kickoff_pass_dispatched = false;
+            return;
+        }
+
+        if self.world.ball_vel().norm_squared() > 1e-4 {
+            self.kickoff_pass_dispatched = true;
+            return;
+        }
+
+        let possession = self.world.possession;
+        if possession < 0 {
+            return;
+        }
+        let team = TeamId::from_index((possession as usize).min(1));
+        let base = match team {
+            TeamId::Home => 0,
+            TeamId::Away => N_PER_TEAM,
+        };
+
+        let kicker_idx = base + (N_PER_TEAM - 1);
+        let receiver_idx = base + (N_PER_TEAM - 2);
+        if kicker_idx >= N_PLAYERS || receiver_idx >= N_PLAYERS {
+            return;
+        }
+
+        if !self.world.player_has_ball(kicker_idx) {
+            return;
+        }
+
+        let target = self.world.player_pos(receiver_idx);
+        let before_vel = self.world.ball_vel();
+        self.apply_ball_command(kicker_idx as u8, target, 8.5, 0.0, false);
+        let after_vel = self.world.ball_vel();
+
+        if after_vel.norm_squared() > before_vel.norm_squared() + 1e-4 {
+            self.kickoff_pass_dispatched = true;
+        }
     }
 
     pub fn write_snapshot(&mut self, buf: &mut SnapshotBuffer) {

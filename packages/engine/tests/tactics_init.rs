@@ -6,15 +6,13 @@ fn test_engine_creation_with_tactics() {
     let engine = Engine::new(0);
     let default_tactics = engine::tactics::QuantifiedTactics::default();
 
-    // Check that home and away tactics are not the default ones
-    assert_ne!(
-        engine.world.tactics[0].press_intensity,
-        default_tactics.press_intensity
-    );
-    assert_ne!(
-        engine.world.tactics[1].press_intensity,
-        default_tactics.press_intensity
-    );
+    assert_eq!(default_tactics.version, 0);
+    assert!(default_tactics.phase_directives.is_empty());
+
+    assert_eq!(engine.world.tactics[0].version, 1);
+    assert!(!engine.world.tactics[0].phase_directives.is_empty());
+    assert_eq!(engine.world.tactics[1].version, 1);
+    assert!(!engine.world.tactics[1].phase_directives.is_empty());
 }
 
 #[test]

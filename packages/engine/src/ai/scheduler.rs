@@ -1,5 +1,4 @@
 use crate::params::AI_REEVAL_PERIOD;
-use log::info;
 
 #[derive(Default)]
 pub struct Scheduler {
@@ -13,9 +12,6 @@ impl Scheduler {
 
     pub fn step(&mut self) {
         self.tick = self.tick.wrapping_add(1);
-        if self.tick % 100 == 0 {
-            info!("[AI/Scheduler] Tick {}", self.tick);
-        }
     }
 
     pub fn should_evaluate(&self, player_index: usize) -> bool {

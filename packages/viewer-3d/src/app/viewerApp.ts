@@ -29,8 +29,8 @@ function createEmptySimView(): SimView {
     tick: 0,
     ball: { x: 0, y: 0, z: 0 }, 
     players,
-    home_team_state: 0,
-    away_team_state: 0
+    home_team_phase: 0,
+    away_team_phase: 0
   };
 }
 

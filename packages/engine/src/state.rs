@@ -1,7 +1,7 @@
-use crate::ai::fsm::TeamState;
+use crate::ai::tactics::QuantifiedTactics;
+use crate::ai::TeamPhase;
 use crate::params::{DT, PITCH_H, PITCH_W, R_BODY};
 use crate::player_data::get_baseline_player_by_id;
-use crate::tactics::QuantifiedTactics;
 use crate::types::{
     BallMode, Foot, MatchPhase, PlayerCommandState, PlayerParams, PlayerRole, RoleOverrideState,
     TeamId, Vec2,
@@ -64,8 +64,8 @@ pub struct World {
     pub home_score: u16,
     pub away_score: u16,
     pub possession: i8, // Which team has possession (-1 for none, 0 for Home, 1 for Away).
-    pub home_team_state: u8,
-    pub away_team_state: u8,
+    pub home_team_phase: u8,
+    pub away_team_phase: u8,
 
     // --- Team and Player Data ---
     pub tactics: [QuantifiedTactics; N_TEAMS], // Tactical settings for each team.
@@ -114,9 +114,9 @@ impl World {
             home_score: 0,
             away_score: 0,
             possession: TeamId::Home.index() as i8,
-            home_team_state: TeamState::KickOffAttack.to_u8(),
-            away_team_state: TeamState::KickOFfDeffence.to_u8(),
-            tactics: [QuantifiedTactics::default(); N_TEAMS],
+            home_team_phase: TeamPhase::KickoffAttack.to_u8(),
+            away_team_phase: TeamPhase::KickoffDefense.to_u8(),
+            tactics: std::array::from_fn(|_| QuantifiedTactics::default()),
             p_player_id: [0; N_PLAYERS],
             p_team: [0; N_PLAYERS],
             p_role: [PlayerRole::default(); N_PLAYERS],
@@ -131,7 +131,7 @@ impl World {
             prole_override: [RoleOverrideState::default(); N_PLAYERS],
             plast_eval_tick: [0; N_PLAYERS],
         };
-        world.reset_kickoff();
+        world.reset_kickoff(TeamId::Home);
         world
     }
 
@@ -158,9 +158,9 @@ impl World {
     }
 
     /// Resets the ball and player positions for a kickoff.
-    pub fn reset_kickoff(&mut self) {
+    pub fn reset_kickoff(&mut self, kickoff_team: TeamId) {
         self.match_phase = MatchPhase::PreKickoff;
-        self.possession = TeamId::Home.index() as i8;
+        self.possession = kickoff_team.index() as i8;
         self.bx = 0.0;
         self.by = 0.0;
         self.bvx = 0.0;

@@ -21,8 +21,8 @@ export interface SimView {
   tick: number;
   ball: BallView;
   players: PlayerView[];
-  home_team_state: number;
-  away_team_state: number;
+  home_team_phase: number;
+  away_team_phase: number;
 }
 
 export interface PlayerInput20 {
@@ -67,15 +67,27 @@ export type DetailedPlayerRole =
   | 'LW'
   | 'RW';
 
+export interface PhaseFocus {
+  width: number;
+  depth: number;
+  tempo: number;
+  pressure: number;
+}
+
+export interface PhaseDirective {
+  shape?: string | null;
+  focus: PhaseFocus;
+  notes?: string | null;
+}
+
 export interface QuantifiedTactics {
-  line_height: number;
-  press_intensity: number;
-  team_width: number;
-  build_up_patience: number;
-  counter_press_intensity: number;
-  long_ball_preference: number;
-  overlap_intensity: number;
-  compactness: number;
+  version: number;
+  base_attacking_shape?: string | null;
+  base_defending_shape?: string | null;
+  set_piece_attack_shape?: string | null;
+  set_piece_defence_shape?: string | null;
+  phase_directives: Record<string, PhaseDirective>;
+  meta: Record<string, number>;
 }
 
 export interface PlayerInstruction {

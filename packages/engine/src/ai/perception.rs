@@ -1,303 +1,144 @@
-use crate::ai::xt;
-use crate::params::{PITCH_H, PITCH_W};
-use crate::state::{World, N_PER_TEAM, N_PLAYERS};
+use crate::params::R_BODY;
+use crate::state::{World, N_PLAYERS};
 use crate::types::{TeamId, Vec2};
-use log::info;
 
-// The data structures for AI perception.
-// These are defined here and used by other AI modules.
-
-#[derive(Clone)]
-pub enum Role {
-    Gk,
-    Df,
-    Mf,
-    Fw,
+/// Distance information about a nearby entity.
+#[derive(Clone, Copy, Debug)]
+pub struct EntityDistance {
+    pub index: usize,
+    pub position: Vec2,
+    pub distance: f32,
 }
 
-#[derive(Clone)]
-pub struct PlayerObs {
-    pub id: u32,
-    pub team_id: u32,
-    pub pos: Vec2,
-    pub vel: Vec2,
-    pub has_ball: bool,
-    pub stamina: f32,
-    pub role: Role,
-}
-
-#[derive(Clone)]
-pub struct BallObs {
-    pub pos: Vec2,
-    pub vel: Vec2,
-}
-
-#[derive(Clone)]
-pub struct GoalObs {
-    pub center: Vec2,
-    pub left_post: Vec2,
-    pub right_post: Vec2,
-}
-
-#[derive(Clone)]
-pub struct PassTarget {
-    pub mate: PlayerObs,
-    pub lane_open: f32,
-    pub tti_receiver: f32,
-    pub tti_opponent: f32,
-    pub xt_gain: f32,
-    pub risk: f32,
-}
-
-#[derive(Clone)]
-pub struct Perception {
-    pub me: PlayerObs,
-    pub teammates: Vec<PlayerObs>,
-    pub opponents: Vec<PlayerObs>,
-    pub ball: BallObs,
-    pub own_goal: GoalObs,
-    pub opp_goal: GoalObs,
+/// Minimal yet structured perception snapshot passed into the decision layer.
+#[derive(Clone, Debug)]
+pub struct PerceptionSnapshot {
     pub tick: u32,
-
-    // Pre-computed features
-    pub dist_to_goal: f32,
-    pub angle_to_goal: f32,
-    pub nearest_opponent_dist: f32,
-    pub open_lane_to_goal: f32,
-    pub open_pass_targets: Vec<PassTarget>,
-    pub free_forward_space: f32,
-    pub target_pos: Vec2,
-    pub formation_anchor: Vec2,
+    pub player_index: usize,
+    pub team_id: TeamId,
+    pub player_position: Vec2,
+    pub player_velocity: Vec2,
+    pub ball_position: Vec2,
+    pub ball_velocity: Vec2,
+    pub distance_to_ball: f32,
+    pub has_ball: bool,
+    pub possession_team: Option<TeamId>,
+    pub closest_teammate: Option<EntityDistance>,
+    pub closest_opponent: Option<EntityDistance>,
+    pub teammate_support: usize,
+    pub opponent_pressure: f32,
 }
 
-// --- Helper Functions for Perception Calculation ---
+impl PerceptionSnapshot {
+    pub fn gather(world: &World, player_index: usize) -> Self {
+        let team_id = TeamId::from_index((world.team_id(player_index) as usize).min(1));
+        let player_position = world.player_pos(player_index);
+        let player_velocity = world.player_vel(player_index);
+        let ball_position = world.ball_pos();
+        let ball_velocity = world.ball_vel();
+        let distance_to_ball = player_position.distance(ball_position);
+        let ctrl_radius = world.p_params[player_index].ctrl_radius.max(R_BODY);
+        let has_ball = distance_to_ball <= ctrl_radius;
 
-//this function calculates ball position and movements. this is same for other players, so you aren't need to calculate every players.
-fn check_the_ball_pos() {}
-
-//this function is for last deffender, if your deffence line is 4-4-2, make last 4 players deffenceline except goal keeper.
-fn check_final_line() {}
-
-//this function checks team's final line's height.
-fn check_team_height() {}
-
-//this function checks each 2nearest player distance.
-fn check_player_distance() {}
-
-//this function checks whole team block size.
-fn check_team_block() {}
-
-//this function checks empty place.
-fn check_space() {}
-
-//this function returns playerID in vision.
-fn check_player_in_vision() {}
-
-//this function checks the other player move if the player in vision.
-fn check_player_move() {}
-
-//this function checks opponent player that in dangerous position need to mark.
-fn check_dangerous_player() {}
-
-//this function checks opponent offside line so player can avoid.
-fn check_offside() {}
-
-//this function checks opponent player's vision and angle so that player can predict the player's next movement.
-fn check_opponent_player() {}
-
-//this function calculates body angle to target player, helping calculate posiibility of the action.
-fn check_angle_to_target_player() {}
-
-//this function checks own goal area for GK
-fn check_goal_line() {}
-
-/// Estimates the time for a player to intercept a point on the pitch.
-fn time_to_intercept(op_pos: Vec2, point: Vec2) -> f32 {
-    let dist = (op_pos - point).norm();
-    const MAX_SPEED: f32 = 6.5; // m/s, a reasonable average top speed.
-    dist / MAX_SPEED
-}
-
-/// Calculates how open a lane is between two points, considering opponents.
-fn lane_open(p0: Vec2, p1: Vec2, opponents: &[PlayerObs]) -> f32 {
-    const N_SAMPLES: i32 = 10;
-    let mut risk = 0.0;
-    for k in 1..N_SAMPLES {
-        let s = p0.lerp(p1, k as f32 / N_SAMPLES as f32);
-        let min_tti = opponents
-            .iter()
-            .map(|op| time_to_intercept(op.pos, s))
-            .fold(f32::INFINITY, f32::min);
-
-        // If an opponent can intercept the mid-point of the pass in under 0.4s, it's risky.
-        if min_tti < 0.4 {
-            risk += 1.0;
-        }
-    }
-    (1.0 - risk / (N_SAMPLES - 1) as f32).max(0.0)
-}
-
-// --- Main Perception Building Function ---
-
-pub fn build_perception(world: &World, player_index: usize, formation_anchor: Vec2) -> Perception {
-    if player_index % N_PER_TEAM == 0 && world.tick % 200 == 0 {
-        info!(
-            "[AI/Perception] Anchor for player {}: ({:.1}, {:.1})",
-            player_index, formation_anchor.x, formation_anchor.y
-        );
-    }
-    let me_pos = world.player_pos(player_index);
-    let me_team_id = world.team_id(player_index);
-
-    let mut teammates = Vec::new();
-    let mut opponents = Vec::new();
-
-    // 1. Categorize all other players into teammates and opponents.
-    for i in 0..N_PLAYERS {
-        if i == player_index {
-            continue;
-        }
-
-        let player = PlayerObs {
-            id: i as u32,
-            team_id: world.team_id(i) as u32,
-            pos: world.player_pos(i),
-            vel: world.player_vel(i),
-            has_ball: world.player_has_ball(i),
-            stamina: 1.0,   // Placeholder
-            role: Role::Mf, // Placeholder
+        let possession_team = match world.possession {
+            -1 => None,
+            0 => Some(TeamId::Home),
+            1 => Some(TeamId::Away),
+            _ => None,
         };
 
-        if player.team_id == me_team_id as u32 {
-            teammates.push(player);
-        } else {
-            opponents.push(player);
+        let mut closest_teammate: Option<EntityDistance> = None;
+        let mut closest_opponent: Option<EntityDistance> = None;
+        let mut teammate_support = 0usize;
+
+        for other in 0..N_PLAYERS {
+            if other == player_index {
+                continue;
+            }
+            let other_team = TeamId::from_index((world.team_id(other) as usize).min(1));
+            let position = world.player_pos(other);
+            let distance = player_position.distance(position);
+
+            if other_team == team_id {
+                if distance < 1e-3 {
+                    continue;
+                }
+                if distance < 18.0 {
+                    teammate_support += 1;
+                }
+                update_closest(&mut closest_teammate, other, position, distance);
+            } else {
+                update_closest(&mut closest_opponent, other, position, distance);
+            }
+        }
+
+        let opponent_pressure = closest_opponent
+            .map(|entry| (1.0 - (entry.distance / 12.0)).clamp(0.0, 1.0))
+            .unwrap_or(0.0);
+
+        Self {
+            tick: world.tick,
+            player_index,
+            team_id,
+            player_position,
+            player_velocity,
+            ball_position,
+            ball_velocity,
+            distance_to_ball,
+            has_ball,
+            possession_team,
+            closest_teammate,
+            closest_opponent,
+            teammate_support,
+            opponent_pressure,
         }
     }
 
-    let me = PlayerObs {
-        id: player_index as u32,
-        team_id: me_team_id as u32,
-        pos: me_pos,
-        vel: world.player_vel(player_index),
-        has_ball: world.player_has_ball(player_index),
-        stamina: 1.0,   // Placeholder
-        role: Role::Mf, // Placeholder
-    };
+    /// Higher values mean more room to play. The value is normalised to 0..1.
+    pub fn space_score(&self) -> f32 {
+        self.closest_opponent
+            .map(|entry| (entry.distance / 20.0).clamp(0.0, 1.0))
+            .unwrap_or(1.0)
+    }
 
-    // 2. Calculate pre-computed features.
-    let opp_goal_center = if me_team_id == TeamId::Home as u8 {
-        Vec2::new(52.5, 0.0)
-    } else {
-        Vec2::new(-52.5, 0.0)
-    };
-    let own_goal_center = if me_team_id == TeamId::Home as u8 {
-        Vec2::new(-52.5, 0.0)
-    } else {
-        Vec2::new(52.5, 0.0)
-    };
+    /// A simple proxy for the player's individual risk appetite. Currently we
+    /// reuse the opponent pressure inverted so that high pressure nudges the
+    /// decision logic towards safer options.
+    pub fn positioning_status(&self) -> f32 {
+        1.0 - self.opponent_pressure
+    }
 
-    let opp_goal = GoalObs {
-        center: opp_goal_center,
-        left_post: opp_goal_center - Vec2::new(0.0, 3.66),
-        right_post: opp_goal_center + Vec2::new(0.0, 3.66),
-    };
-    let own_goal = GoalObs {
-        center: own_goal_center,
-        left_post: own_goal_center - Vec2::new(0.0, 3.66),
-        right_post: own_goal_center + Vec2::new(0.0, 3.66),
-    };
-
-    let dist_to_goal = (opp_goal.center - me_pos).norm();
-
-    let to_left_post = opp_goal.left_post - me_pos;
-    let to_right_post = opp_goal.right_post - me_pos;
-    let angle_to_goal = to_left_post.angle_between(to_right_post).abs();
-
-    let nearest_opponent_dist = opponents
-        .iter()
-        .map(|op| (op.pos - me_pos).norm())
-        .fold(f32::INFINITY, f32::min);
-
-    let open_lane_to_goal = lane_open(me_pos, opp_goal.center, &opponents);
-
-    // 3. Analyze potential pass targets.
-    let open_pass_targets = teammates
-        .iter()
-        .map(|mate| {
-            let lane_open_score = lane_open(me_pos, mate.pos, &opponents);
-
-            // Simplified TTI calculation for now.
-            let tti_receiver = (mate.pos - world.ball_pos()).norm() / 6.0;
-            let tti_opponent = opponents
-                .iter()
-                .map(|op| time_to_intercept(op.pos, mate.pos))
-                .fold(f32::INFINITY, f32::min);
-
-            let xt_gain = xt::expected_threat(mate.pos) - xt::expected_threat(me_pos);
-
-            PassTarget {
-                mate: mate.clone(),
-                lane_open: lane_open_score,
-                tti_receiver,
-                tti_opponent,
-                xt_gain,
-                risk: 1.0 - lane_open_score, // Simplified risk, inverse of lane openness.
+    /// Suggests a direction where free space is available, used by the
+    /// positioning module.
+    pub fn suggested_space_direction(&self) -> Vec2 {
+        if let Some(opponent) = self.closest_opponent {
+            let away = (self.player_position - opponent.position).normalize();
+            if away.norm() > 0.0 {
+                return away;
             }
-        })
-        .collect();
+        }
+        // Fall back to moving forward.
+        (self.ball_position - self.player_position).normalize()
+    }
+}
 
-    let ball_pos = world.ball_pos();
-    let ball_vel = world.ball_vel();
-    let team_id = TeamId::from_index(me_team_id as usize);
-    let slot_in_team = player_index % N_PER_TEAM;
-    let lateral_band = (slot_in_team as f32 - 5.0) * 1.0;
-    let forward_bias = match team_id {
-        TeamId::Home => -6.0,
-        TeamId::Away => 6.0,
-    };
-
-    let possession_team = world.possession;
-    let player_params = world.p_params[player_index];
-    let max_speed = player_params.v_max.max(0.1);
-    let pursue_ball = possession_team != me_team_id as i8;
-
-    let mut target_pos = if pursue_ball {
-        let to_ball = ball_pos - me_pos;
-        let distance = to_ball.norm();
-        let travel_time = (distance / max_speed).clamp(0.0, 2.0);
-        let predicted_ball = ball_pos + ball_vel * travel_time;
-        predicted_ball
-    } else {
-        // Blend anchor with simple lateral bias to react to ball position
-        let bias = Vec2::new(forward_bias, lateral_band * 0.25);
-        formation_anchor + bias
-    };
-
-    let half_w = PITCH_W * 0.5;
-    let half_h = PITCH_H * 0.5;
-    target_pos.x = target_pos.x.clamp(-half_w, half_w);
-    target_pos.y = target_pos.y.clamp(-half_h, half_h);
-
-    // 4. Assemble the final Perception object.
-    Perception {
-        me,
-        teammates,
-        opponents,
-        ball: BallObs {
-            pos: ball_pos,
-            vel: ball_vel,
-        },
-        own_goal,
-        opp_goal,
-        tick: world.tick,
-        dist_to_goal,
-        angle_to_goal,
-        nearest_opponent_dist,
-        open_lane_to_goal,
-        open_pass_targets,
-        free_forward_space: 10.0, // Placeholder, requires more complex geometry calculation.
-        target_pos,
-        formation_anchor,
+fn update_closest(slot: &mut Option<EntityDistance>, index: usize, position: Vec2, distance: f32) {
+    match slot {
+        Some(existing) => {
+            if distance < existing.distance {
+                *slot = Some(EntityDistance {
+                    index,
+                    position,
+                    distance,
+                });
+            }
+        }
+        None => {
+            *slot = Some(EntityDistance {
+                index,
+                position,
+                distance,
+            });
+        }
     }
 }

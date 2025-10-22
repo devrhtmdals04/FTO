@@ -1,7 +1,9 @@
 #![allow(clippy::missing_inline_in_public_items)]
 
+use crate::ai::{tactics::QuantifiedTactics, TeamPhase};
 use crate::player_data::{get_baseline_player, get_baseline_player_by_id};
 use crate::state::{compute_params_20, PlayerInput20, N_PER_TEAM};
+use crate::types::TeamId;
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
@@ -49,7 +51,7 @@ struct PlayerClassExport {
     role: crate::types::DetailedPlayerRole,
     #[serde(rename = "role_id")]
     role_id: u8,
-    quantified_tactics: crate::tactics::QuantifiedTactics,
+    quantified_tactics: QuantifiedTactics,
     personal_instructions: Option<crate::types::PlayerInstruction>,
     params: crate::types::PlayerParams,
     #[serde(rename = "base_stats")]
@@ -137,7 +139,7 @@ impl WasmEngine {
                     name: class.name.to_string(),
                     role: class.role.clone(),
                     role_id: class.role.to_u8(),
-                    quantified_tactics: class.quantified_tactics,
+                    quantified_tactics: class.quantified_tactics.clone(),
                     personal_instructions: class.personal_instructions.clone(),
                     params: class.params,
                     base_stats,
@@ -200,8 +202,22 @@ impl WasmEngine {
             let params = &world.p_params[i];
             let (vis_y, vis_xz) = vis_from_params(params.height_m, params.bmi);
             let player_class = self.inner.get_player_class(i).unwrap();
-            let state = player_class.fsm.get_state();
             let role = player_class.role.to_u8();
+            let team_id = TeamId::from_index(world.p_team[i] as usize);
+            let team_phase_raw = if team_id == TeamId::Home {
+                world.home_team_phase
+            } else {
+                world.away_team_phase
+            };
+            let team_phase = TeamPhase::from_u8(team_phase_raw);
+            let has_ball = world.player_has_ball(i);
+            let encoded_state = if has_ball {
+                1u8
+            } else if team_phase.is_attacking() {
+                2u8
+            } else {
+                3u8
+            };
 
             write_f32(&mut buffer, world.px[i]); // x
             write_f32(&mut buffer, world.py[i]); // y
@@ -212,13 +228,13 @@ impl WasmEngine {
             write_f32(&mut buffer, vis_xz); // vis_xz
 
             write_u8(&mut buffer, world.p_team[i]); // team
-            write_u8(&mut buffer, if world.player_has_ball(i) { 1 } else { 0 });
-            write_u8(&mut buffer, state.to_u8()); // fsm_state
+            write_u8(&mut buffer, if has_ball { 1 } else { 0 });
+            write_u8(&mut buffer, encoded_state); // simplified ai state
             write_u8(&mut buffer, role); // role
         }
 
-        write_u8(&mut buffer, world.home_team_state);
-        write_u8(&mut buffer, world.away_team_state);
+        write_u8(&mut buffer, world.home_team_phase);
+        write_u8(&mut buffer, world.away_team_phase);
 
         buffer
     }

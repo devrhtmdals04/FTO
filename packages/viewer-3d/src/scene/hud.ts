@@ -1,17 +1,17 @@
 import { SimView } from "../state";
 
-const TEAM_STATE_MAP: { [key: number]: string } = {
-    0: "BuildUp",
-    1: "FinalThird",
-    2: "HighBlock",
-    3: "MidBlock",
-    4: "LowBlock",
-    5: "GetBall",
-    6: "LoseBall",
-    7: "CornerAttack",
-    8: "CornerDefence",
-    9: "KickOffAttack",
-    10: "KickOffDefence",
+const TEAM_PHASE_MAP: Record<number, string> = {
+  0: "KickoffAttack",
+  1: "KickoffDefense",
+  2: "SetPieceAttack",
+  3: "SetPieceDefense",
+  4: "BuildUp",
+  5: "Progression",
+  6: "FinalThird",
+  7: "HighBlock",
+  8: "MidBlock",
+  9: "LowBlock",
+  10: "Neutral",
 };
 
 export class HUD {
@@ -51,10 +51,10 @@ export class HUD {
     this.element.innerText = `Tick: ${view.tick}\nFPS: ${fps.toFixed(1)}`;
 
     if (this.homeStateDiv) {
-        this.homeStateDiv.textContent = `Home: ${TEAM_STATE_MAP[view.home_team_state] || 'Unknown'}`;
+      this.homeStateDiv.textContent = `Home: ${TEAM_PHASE_MAP[view.home_team_phase] || 'Unknown'}`;
     }
     if (this.awayStateDiv) {
-        this.awayStateDiv.textContent = `Away: ${TEAM_STATE_MAP[view.away_team_state] || 'Unknown'}`;
+      this.awayStateDiv.textContent = `Away: ${TEAM_PHASE_MAP[view.away_team_phase] || 'Unknown'}`;
     }
   }
 }

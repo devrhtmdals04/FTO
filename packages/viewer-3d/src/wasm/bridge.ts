@@ -67,15 +67,15 @@ function parseSimView(viewData: Uint8Array): SimView {
     };
   }
 
-  const home_team_state = dv.getUint8(off); off += 1;
-  const away_team_state = dv.getUint8(off); off += 1;
+  const home_team_phase = dv.getUint8(off); off += 1;
+  const away_team_phase = dv.getUint8(off); off += 1;
 
   return {
     tick,
     ball: { x: ballX, y: ballY, z: ballZ },
     players,
-    home_team_state,
-    away_team_state,
+    home_team_phase,
+    away_team_phase,
   };
 }
 
@@ -131,7 +131,7 @@ export function createEngineBridge() {
       // 초기 로딩 중엔 빈 모션
       return { tick: lastTick, ball: {x:0,y:0,z:0}, players: Array.from({length:22},(_,i)=>( 
         {x:0,y:0,h:[1,0],vis:1,team:(i<11?0:1), state: 0, role: 0} as PlayerView
-      )), home_team_state: 0, away_team_state: 0 };
+      )), home_team_phase: 0, away_team_phase: 0 };
     }
     // 고정틱
     engine.tick();
@@ -141,7 +141,7 @@ export function createEngineBridge() {
         // 버퍼가 너무 작거나 다른 에러
         return { tick: lastTick, ball: {x:0,y:0,z:0}, players: Array.from({length:22},(_,i)=>( 
             {x:0,y:0,h:[1,0],vis:1,team:(i<11?0:1), state: 0, role: 0} as PlayerView
-        )), home_team_state: 0, away_team_state: 0 };
+        )), home_team_phase: 0, away_team_phase: 0 };
     }
 
     const simView = parseSimView(viewData);
