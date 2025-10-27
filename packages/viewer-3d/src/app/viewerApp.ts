@@ -7,6 +7,8 @@ import { PlayerSystem } from '../scene/player_system';
 import { PlayerProfile, PlayerView, SimView } from '../state';
 import { createEngineBridge } from '../wasm/bridge';
 import { createSceneContext, SceneContext } from './sceneContext';
+import { createXtGrid } from '../scene/xt_grid';
+import { createZonesGrid } from '../scene/zones_grid';
 
 const MAX_PLAYERS = 22;
 const STEP_DT = 1 / 20;
@@ -20,10 +22,13 @@ function createEmptySimView(): SimView {
     y: 0,
     h: [1, 0],
     vis: 1,
+    vis_y: 1,
+    vis_xz: 1,
     team: (i < 11 ? 0 : 1),
     has_ball: false,
     state: 0,
     role: 0,
+    perception_radius: 0,
   }));
   return {
     tick: 0,
@@ -86,6 +91,14 @@ export class ViewerApp {
   private fps = 0;
   private frameHandle: number | null = null;
 
+  private xtGridHome: THREE.Group | null = null;
+  private xtGridAway: THREE.Group | null = null;
+  private xtGridDisplay: 'off' | 'home' | 'away' = 'off';
+
+  private zonesGridHome: THREE.Group | null = null;
+  private zonesGridAway: THREE.Group | null = null;
+  private zonesGridDisplay: 'off' | 'home' | 'away' = 'off';
+
   private isPaused = true;
   private isDriveMode = false;
   private currentPlayerCount = 1;
@@ -96,6 +109,7 @@ export class ViewerApp {
   private showPlayerRole = true;
   private showPlayerState = true;
   private showPlayerAction = true;
+  private showPerceptionRadius = false;
 
   constructor(private readonly mount: HTMLElement, private readonly doc: Document = document) {
     this.ui = this.resolveUIElements();
@@ -116,6 +130,25 @@ export class ViewerApp {
 
     await this.source.ready();
     this.playerProfiles = this.source.getPlayerProfiles();
+    const xtMap = this.source.getXtMap();
+    if (xtMap && xtMap.length > 0) {
+        this.xtGridHome = createXtGrid(xtMap, 'home');
+        this.xtGridHome.visible = this.xtGridDisplay === 'home';
+        this.sceneContext.scene.add(this.xtGridHome);
+
+        this.xtGridAway = createXtGrid(xtMap, 'away');
+        this.xtGridAway.visible = this.xtGridDisplay === 'away';
+        this.sceneContext.scene.add(this.xtGridAway);
+    }
+
+    this.zonesGridHome = createZonesGrid('home');
+    this.zonesGridHome.visible = this.zonesGridDisplay === 'home';
+    this.sceneContext.scene.add(this.zonesGridHome);
+
+    this.zonesGridAway = createZonesGrid('away');
+    this.zonesGridAway.visible = this.zonesGridDisplay === 'away';
+    this.sceneContext.scene.add(this.zonesGridAway);
+
     this.populatePlayerProfileSelect();
 
     const initialCount = MAX_PLAYERS;
@@ -187,6 +220,7 @@ export class ViewerApp {
         showRole: this.showPlayerRole,
         showState: this.showPlayerState,
         showAction: this.showPlayerAction,
+        showPerceptionRadius: this.showPerceptionRadius,
     });
     this.ball.update({
       x: THREE.MathUtils.lerp(this.prev.ball.x, this.curr.ball.x, alpha),
@@ -747,6 +781,65 @@ export class ViewerApp {
         description: 'Toggle Player Action',
         handler: () => {
             this.showPlayerAction = !this.showPlayerAction;
+            this.renderDebugInfoPanel();
+        },
+        suppressRepeat: true,
+        condition: () => this.players.isMasterDebug,
+      },
+      {
+        code: 'Digit7',
+        keyLabel: '7',
+        description: 'Cycle xT Grid (Off/Home/Away)',
+        handler: () => {
+            if (this.xtGridDisplay === 'off') {
+                this.xtGridDisplay = 'home';
+            } else if (this.xtGridDisplay === 'home') {
+                this.xtGridDisplay = 'away';
+            } else {
+                this.xtGridDisplay = 'off';
+            }
+
+            if (this.xtGridHome) {
+                this.xtGridHome.visible = this.xtGridDisplay === 'home';
+            }
+            if (this.xtGridAway) {
+                this.xtGridAway.visible = this.xtGridDisplay === 'away';
+            }
+            this.renderDebugInfoPanel();
+        },
+        suppressRepeat: true,
+        condition: () => this.players.isMasterDebug,
+      },
+      {
+        code: 'Digit8',
+        keyLabel: '8',
+        description: 'Cycle Zones Grid (Off/Home/Away)',
+        handler: () => {
+            if (this.zonesGridDisplay === 'off') {
+                this.zonesGridDisplay = 'home';
+            } else if (this.zonesGridDisplay === 'home') {
+                this.zonesGridDisplay = 'away';
+            } else {
+                this.zonesGridDisplay = 'off';
+            }
+
+            if (this.zonesGridHome) {
+                this.zonesGridHome.visible = this.zonesGridDisplay === 'home';
+            }
+            if (this.zonesGridAway) {
+                this.zonesGridAway.visible = this.zonesGridDisplay === 'away';
+            }
+            this.renderDebugInfoPanel();
+        },
+        suppressRepeat: true,
+        condition: () => this.players.isMasterDebug,
+      },
+      {
+        code: 'Digit9',
+        keyLabel: '9',
+        description: 'Toggle Perception Radius',
+        handler: () => {
+            this.showPerceptionRadius = !this.showPerceptionRadius;
             this.renderDebugInfoPanel();
         },
         suppressRepeat: true,

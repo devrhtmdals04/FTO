@@ -12,6 +12,8 @@ pub mod positioning;
 pub mod restarts;
 pub mod scheduler;
 pub mod tactics;
+pub mod xtmodel;
+pub mod zones;
 
 pub use formations::PhaseLayout;
 pub use phase::TeamPhase;
@@ -20,7 +22,7 @@ pub use scheduler::Scheduler;
 pub use tactics::{QuantifiedTactics, TacticModel};
 
 use crate::commands::Cmd;
-use crate::state::World;
+use crate::state::{PlayerInput20, World};
 use crate::types::Vec2;
 use decision::{DecisionContext, PlayerAction};
 use perception::PerceptionSnapshot;
@@ -33,14 +35,16 @@ use positioning::{PositioningContext, PositioningWeights};
 pub struct PlayerBrain {
     anchor: Vec2,
     positioning_bias: f32,
+    stats: PlayerInput20, // stats 필드 추가
 }
 
 impl PlayerBrain {
     /// Creates a new brain anchored at the player's spawn position.
-    pub fn new(initial_anchor: Vec2) -> Self {
+    pub fn new(initial_anchor: Vec2, stats: PlayerInput20) -> Self {
         Self {
             anchor: initial_anchor,
             positioning_bias: 0.25,
+            stats,
         }
     }
 
@@ -61,13 +65,15 @@ impl PlayerBrain {
         team_phase: TeamPhase,
         player_index: usize,
     ) -> Option<Cmd> {
-        let perception = PerceptionSnapshot::gather(world, player_index);
+        let perception = PerceptionSnapshot::gather(world, player_index, &self.stats);
+        let team_id = perception.team_id;
 
         let positioning_ctx = PositioningContext {
             anchor: self.anchor,
             player_index,
             team_phase,
             perception: &perception,
+            tactics: &world.tactics[team_id.index()],
             weights: PositioningWeights::default(),
             noise_bias: self.positioning_bias,
         };

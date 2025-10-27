@@ -170,6 +170,13 @@ impl WasmEngine {
         serde_json::to_string(&all_players_data).unwrap_or_else(|_| "[]".to_string())
     }
 
+    #[wasm_bindgen(js_name = getXtMap)]
+    pub fn get_xt_map(&self) -> JsValue {
+        let xt_map_as_vec: Vec<Vec<f32>> =
+            ai::xtmodel::XT_MAP.iter().map(|row| row.to_vec()).collect();
+        serde_wasm_bindgen::to_value(&xt_map_as_vec).unwrap()
+    }
+
     #[wasm_bindgen]
     pub fn view(&self) -> Vec<u8> {
         let world = &self.inner.world;
@@ -201,6 +208,15 @@ impl WasmEngine {
         for i in 0..N_PLAYERS {
             let params = &world.p_params[i];
             let (vis_y, vis_xz) = vis_from_params(params.height_m, params.bmi);
+
+            // --- Calculate perception radius for visualization ---
+            let player_id = world.p_player_id[i];
+            let stats = get_baseline_player_by_id(player_id).unwrap();
+            let vision_stat = stats.vision as f32;
+            let normalized_vision = vision_stat / 20.0;
+            let perception_radius = 10.0 + normalized_vision * 10.0;
+            // --- End of calculation ---
+
             let player_class = self.inner.get_player_class(i).unwrap();
             let role = player_class.role.to_u8();
             let team_id = TeamId::from_index(world.p_team[i] as usize);
@@ -223,7 +239,7 @@ impl WasmEngine {
             write_f32(&mut buffer, world.py[i]); // y
             write_f32(&mut buffer, world.pfacing[i].cos()); // hx
             write_f32(&mut buffer, world.pfacing[i].sin()); // hy
-            write_f32(&mut buffer, params.vis_scale); // vis (legacy)
+            write_f32(&mut buffer, perception_radius); // vis (now perception_radius)
             write_f32(&mut buffer, vis_y); // vis_y
             write_f32(&mut buffer, vis_xz); // vis_xz
 

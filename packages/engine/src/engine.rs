@@ -254,7 +254,7 @@ impl Engine {
                     }
                 }
                 Cmd::MovePlayerTarget { pid, tx, ty } => {
-                    info!("[Engine] Move target command pid {}", pid);
+                    //info!("[Engine] Move target command pid {}", pid);
                     if let Some(pcmd) = self.world.pcommand.get_mut(pid as usize) {
                         let player_pos =
                             Vec2::new(self.world.px[pid as usize], self.world.py[pid as usize]);

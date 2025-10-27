@@ -11,6 +11,7 @@ export class WasmEngine {
   command(cmd: any): void;
   getPlayerClassesJson(): string;
   getPlayerDataJson(): string;
+  getXtMap(): any;
   view(): Uint8Array;
 }
 
@@ -27,6 +28,7 @@ export interface InitOutput {
   readonly wasmengine_command: (a: number, b: any) => void;
   readonly wasmengine_getPlayerClassesJson: (a: number) => [number, number];
   readonly wasmengine_getPlayerDataJson: (a: number) => [number, number];
+  readonly wasmengine_getXtMap: (a: number) => any;
   readonly wasmengine_view: (a: number) => [number, number];
   readonly start: () => void;
   readonly __wbindgen_malloc: (a: number, b: number) => number;

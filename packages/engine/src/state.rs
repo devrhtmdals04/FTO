@@ -17,7 +17,7 @@ pub const N_TEAMS: usize = 2;
 /// Represents a player's base attributes on a 1-20 scale.
 /// These are the "raw stats" that are used to compute the final physics parameters.
 #[repr(C)]
-#[derive(Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize)]
 pub struct PlayerInput20 {
     pub player_id: u32,
     pub name: &'static str,

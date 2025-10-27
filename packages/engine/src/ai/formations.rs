@@ -58,7 +58,7 @@ fn default_focus_for_phase(phase: TeamPhase) -> PhaseFocus {
             PhaseFocus::new(0.5, 0.55, 0.5, 0.2)
         }
         TeamPhase::KickoffDefense | TeamPhase::SetPieceDefense => {
-            PhaseFocus::new(0.45, 0.35, 0.3, 0.5)
+            PhaseFocus::new(0.5, 0.55, 0.5, 0.2)
         }
         TeamPhase::BuildUp => PhaseFocus::new(0.55, 0.4, 0.4, 0.3),
         TeamPhase::Progression => PhaseFocus::new(0.6, 0.55, 0.5, 0.3),

@@ -14,6 +14,7 @@ export interface PlayerInstance {
   skeletonHelper?: THREE.SkeletonHelper;
   targetMarker?: THREE.Object3D;
   controlRadiusCircle?: THREE.Mesh;
+  perceptionRadiusCircle?: THREE.Line; // 시야 범위 원 추가
 }
 
 const modelCache = new Map<string, THREE.Object3D>();
@@ -116,6 +117,20 @@ export function spawnPlayer(template: THREE.Object3D, team: 0|1): PlayerInstance
   controlRadiusCircle.visible = false;
   root.add(controlRadiusCircle);
 
+  // Create vertices for a circle outline in a more robust way
+  const points = [];
+  const divisions = 64;
+  for (let i = 0; i <= divisions; i++) {
+      const angle = (i / divisions) * Math.PI * 2;
+      points.push(new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle)));
+  }
+  const perceptionCircleGeo = new THREE.BufferGeometry().setFromPoints(points);
+
+  const perceptionCircleMat = new THREE.LineBasicMaterial({ color: 0x8888ff, transparent: true, opacity: 0.5 });
+  const perceptionRadiusCircle = new THREE.LineLoop(perceptionCircleGeo, perceptionCircleMat);
+  perceptionRadiusCircle.visible = false;
+  root.add(perceptionRadiusCircle);
+
   const instance: PlayerInstance = {
     root,
     mixer,
@@ -125,6 +140,7 @@ export function spawnPlayer(template: THREE.Object3D, team: 0|1): PlayerInstance
     skeletonHelper,
     targetMarker: undefined,
     controlRadiusCircle,
+    perceptionRadiusCircle, // 인스턴스에 추가
   };
 
   // 초기 팀 컬러 (GLB 저지 및 디버그 실린더)

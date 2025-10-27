@@ -1,22 +1,40 @@
-use crate::params::{PITCH_H, PITCH_W};
-use crate::types::{TeamId, Vec2};
-
+use super::formations;
 use super::perception::PerceptionSnapshot;
 use super::phase::TeamPhase;
+use super::tactics::QuantifiedTactics;
+use crate::ai::xtmodel::XT_MAP;
+use crate::state::N_PER_TEAM;
+use crate::types::{TeamId, Vec2};
 
-#[derive(Clone, Copy, Debug)]
+// --- Constants ---
+const PITCH_W: f32 = 105.0;
+const PITCH_H: f32 = 68.0;
+const XT_GRID_COLS: i32 = 16;
+const XT_GRID_ROWS: i32 = 12;
+
+const SEARCH_RADIUS: f32 = 15.0;
+const SEARCH_STEP: f32 = 3.0;
+
+// --- Helper Structs ---
+#[derive(Clone, Copy)]
+pub struct GridIndex {
+    pub col: i32,
+    pub row: i32,
+}
+
+#[derive(Clone, Copy)]
 pub struct PositioningWeights {
-    pub xt: f32,
-    pub space: f32,
-    pub tactic: f32,
+    pub w_xt: f32,
+    pub w_formation: f32,
+    pub w_space: f32,
 }
 
 impl Default for PositioningWeights {
     fn default() -> Self {
         Self {
-            xt: 0.5,
-            space: 0.3,
-            tactic: 0.2,
+            w_xt: 1.0,
+            w_formation: 0.02,
+            w_space: 0.5,
         }
     }
 }
@@ -26,68 +44,115 @@ pub struct PositioningContext<'a> {
     pub player_index: usize,
     pub team_phase: TeamPhase,
     pub perception: &'a PerceptionSnapshot,
+    pub tactics: &'a QuantifiedTactics,
     pub weights: PositioningWeights,
     pub noise_bias: f32,
 }
 
-pub fn compute_best_position(ctx: &PositioningContext<'_>) -> Vec2 {
-    let perception = ctx.perception;
-    let mut xt_target = perception.ball_position;
+//공을 가진 선수를 기준으로 '이동하는 박스'를 만들어 그 공간을 기준으로 포지션 선정으로 개선할 예정.
+// =======================================================
+// 1. Main Positioning Module
+// =======================================================
+pub fn compute_best_position(ctx: &PositioningContext) -> Vec2 {
+    let my_player_pos = ctx.perception.player_position;
+    let mut best_position = my_player_pos;
+    let mut best_score = -std::f32::INFINITY;
 
-    if ctx.team_phase.is_attacking() {
-        let dir = attack_direction(perception.team_id);
-        xt_target += dir * 12.0;
-    } else {
-        // Stay closer to the anchor while defending.
-        xt_target = ctx.anchor;
+    let ideal_layout = formations::ideal_layout_for_phase(
+        ctx.perception.team_id,
+        ctx.team_phase,
+        ctx.tactics,
+    );
+    let player_index_in_team = ctx.player_index % N_PER_TEAM;
+    let home_pos = ideal_layout.positions[player_index_in_team];
+
+    let weights = ctx.weights;
+
+    let start_x = my_player_pos.x - SEARCH_RADIUS;
+    let end_x = my_player_pos.x + SEARCH_RADIUS;
+    let start_y = my_player_pos.y - SEARCH_RADIUS;
+    let end_y = my_player_pos.y + SEARCH_RADIUS;
+
+    let mut x = start_x;
+    while x <= end_x {
+        let mut y = start_y;
+        while y <= end_y {
+            let candidate_pos = Vec2::new(x, y);
+
+            if !is_on_pitch(candidate_pos) {
+                y += SEARCH_STEP;
+                continue;
+            }
+
+            let score_xt = calculate_normalized_xt_score(candidate_pos, ctx.perception.team_id);
+            let score_formation = calculate_normalized_formation_score(candidate_pos, home_pos);
+            let score_space = calculate_normalized_space_score(candidate_pos, ctx.perception);
+
+            let total_score = (weights.w_xt * score_xt)
+                + (weights.w_formation * score_formation);
+                // + (weights.w_space * score_space);
+
+            if total_score > best_score {
+                best_score = total_score;
+                best_position = candidate_pos;
+            }
+            y += SEARCH_STEP;
+        }
+        x += SEARCH_STEP;
     }
 
-    let space_dir = perception.suggested_space_direction();
-    let space_target = perception.player_position + space_dir * 6.0;
-
-    let tactic_target = ctx.anchor;
-
-    let combined = xt_target * ctx.weights.xt
-        + space_target * ctx.weights.space
-        + tactic_target * ctx.weights.tactic;
-    let denom = ctx.weights.xt + ctx.weights.space + ctx.weights.tactic;
-    let mut target = combined / denom.max(1e-3);
-    target = apply_noise(target, ctx);
-    clamp_to_pitch(target)
+    best_position
 }
 
-pub fn apply_noise(mut target: Vec2, ctx: &PositioningContext<'_>) -> Vec2 {
-    let status = ctx.perception.positioning_status();
-    if status <= 0.0 {
-        return target;
-    }
+// =======================================================
+// 2. Score Calculation Modules
+// =======================================================
+pub fn calculate_normalized_xt_score(pos: Vec2, team_id: TeamId) -> f32 {
+    let grid_index = get_xt_grid_index_from_world_pos(pos);
 
-    let phase = (ctx.perception.tick as f32 * 0.07 + ctx.player_index as f32 * 1.37).sin();
-    let amp = ctx.noise_bias * (0.5 + 0.5 * status);
-    let forward = (ctx.perception.ball_position - ctx.perception.player_position).normalize();
-    let perp = Vec2::new(-forward.y, forward.x);
-
-    let noise = if perp.norm_squared() > 1e-5 {
-        perp * amp * phase
+    let lookup_col = if team_id == TeamId::Home {
+        grid_index.col
     } else {
-        Vec2::new(0.0, amp * phase)
+        (XT_GRID_COLS - 1) - grid_index.col
     };
 
-    target += noise;
-    target
+    XT_MAP[lookup_col as usize][grid_index.row as usize]
 }
 
-fn attack_direction(team: TeamId) -> Vec2 {
-    match team {
-        TeamId::Home => Vec2::new(1.0, 0.0),
-        TeamId::Away => Vec2::new(-1.0, 0.0),
+fn get_xt_grid_index_from_world_pos(pos: Vec2) -> GridIndex {
+    let x_ratio = (pos.x + PITCH_W * 0.5) / PITCH_W;
+    let y_ratio = (pos.y + PITCH_H * 0.5) / PITCH_H;
+
+    let col_f = x_ratio * (XT_GRID_COLS as f32);
+    let row_f = y_ratio * (XT_GRID_ROWS as f32);
+
+    let col = (col_f as i32).clamp(0, XT_GRID_COLS - 1);
+    let row = (row_f as i32).clamp(0, XT_GRID_ROWS - 1);
+
+    GridIndex { col, row }
+}
+
+fn calculate_normalized_formation_score(pos: Vec2, home_pos: Vec2) -> f32 {
+    let dist = pos.distance(home_pos);
+    // MAX_DEVIATION is a placeholder for the max distance a player can be from their formation position
+    const MAX_DEVIATION: f32 = 30.0;
+    1.0 - (dist / MAX_DEVIATION).clamp(0.0, 1.0)
+}
+
+fn calculate_normalized_space_score(pos: Vec2, perception: &PerceptionSnapshot) -> f32 {
+    if let Some(opponent) = perception.closest_opponent {
+        let dist = pos.distance(opponent.position);
+        // MAX_SPACE is a placeholder for the ideal distance to an opponent
+        const MAX_SPACE: f32 = 20.0;
+        (dist / MAX_SPACE).clamp(0.0, 1.0)
+    } else {
+        1.0
     }
 }
 
-fn clamp_to_pitch(mut pos: Vec2) -> Vec2 {
-    let half_w = PITCH_W * 0.5 - 2.0;
-    let half_h = PITCH_H * 0.5 - 2.0;
-    pos.x = pos.x.clamp(-half_w, half_w);
-    pos.y = pos.y.clamp(-half_h, half_h);
-    pos
+// =======================================================
+// 3. Utility Functions
+// =======================================================
+fn is_on_pitch(pos: Vec2) -> bool {
+    pos.x.abs() <= PITCH_W * 0.5 && pos.y.abs() <= PITCH_H * 0.5
 }

@@ -39,7 +39,7 @@ function parseSimView(viewData: Uint8Array): SimView {
     const y      = dv.getFloat32(off, true); off += 4;
     const hx     = dv.getFloat32(off, true); off += 4;
     const hy     = dv.getFloat32(off, true); off += 4;
-    const vis    = dv.getFloat32(off, true); off += 4;
+    const perception_radius = dv.getFloat32(off, true); off += 4; // vis 필드를 perception_radius로 해석
     const vis_y  = dv.getFloat32(off, true); off += 4;
     const vis_xz = dv.getFloat32(off, true); off += 4;
     const team   = dv.getUint8(off);          off += 1;
@@ -59,11 +59,14 @@ function parseSimView(viewData: Uint8Array): SimView {
     players[i] = {
       x, y,
       h: [hx / n, hy / n],
-      vis,
+      vis: perception_radius, // vis에 우선 값을 넣어둠 (하위 호환성)
+      vis_y: vis_y, // vis_y 할당
+      vis_xz: vis_xz, // vis_xz 할당
       team: (team === 0 ? 0 : 1) as TeamId,
       has_ball: hasBall,
       state: state,
       role: role,
+      perception_radius: perception_radius, // 새로운 필드에 값 할당
     };
   }
 
@@ -85,6 +88,7 @@ export function createEngineBridge() {
   let engine: WasmEngine;
   let lastTick = 0;
   let playerProfiles: PlayerProfile[] = [];
+  let xtMap: number[][] = [];
 
   const initFn = async () => {
     try {
@@ -117,6 +121,7 @@ export function createEngineBridge() {
           playerProfiles = [];
         }
       }
+      xtMap = engine.getXtMap();
       ready = true;
       console.log("WASM Engine initialized successfully.");
     } catch (e) {
@@ -153,6 +158,7 @@ export function createEngineBridge() {
       get,
       ready: () => readyPromise,
       getPlayerProfiles: () => playerProfiles,
+      getXtMap: () => xtMap,
       engine: new Proxy({}, {
           get: (target, prop) => {
               if (ready) {

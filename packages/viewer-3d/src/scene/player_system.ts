@@ -46,6 +46,7 @@ export interface DebugFlags {
     showRole: boolean;
     showState: boolean;
     showAction: boolean;
+    showPerceptionRadius: boolean; // 시야 범위 플래그 추가
 }
 
 export class PlayerSystem {
@@ -251,8 +252,19 @@ export class PlayerSystem {
             p.controlRadiusCircle.scale.set(radius, 1, radius);
           }
         }
-      } else if (p.controlRadiusCircle) {
-        p.controlRadiusCircle.visible = false;
+        
+        // perceptionRadiusCircle의 표시 여부를 showPerceptionRadius 플래그로 제어
+        if (p.perceptionRadiusCircle) {
+            p.perceptionRadiusCircle.visible = debugFlags.showPerceptionRadius;
+            if (debugFlags.showPerceptionRadius) {
+                const radius = v.perception_radius;
+                p.perceptionRadiusCircle.scale.set(radius, radius, radius);
+            }
+        }
+      } else {
+        // 마스터 디버그가 꺼지면 모든 디버그 요소를 숨김
+        if (p.controlRadiusCircle) p.controlRadiusCircle.visible = false;
+        if (p.perceptionRadiusCircle) p.perceptionRadiusCircle.visible = false;
       }
 
       p.mixer.update(dt);

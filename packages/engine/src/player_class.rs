@@ -35,7 +35,7 @@ impl PlayerClass {
             .unwrap_or(DetailedPlayerRole::ST);
 
         let anchor = world.player_pos(player_index);
-        let brain = PlayerBrain::new(anchor);
+        let brain = PlayerBrain::new(anchor, baseline_data);
 
         info!(
             "[PlayerClass] Initialized {} (team {:?}, role {:?}, atk {}, def {})",

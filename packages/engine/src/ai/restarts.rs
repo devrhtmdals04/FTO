@@ -55,8 +55,8 @@ pub fn set_piece_positions(
 fn apply_kickoff_rules(positions: &mut [Vec2; N_PER_TEAM], team: TeamId, attacking: bool) {
     let side = if team == TeamId::Home { -1.0 } else { 1.0 };
     if attacking {
-        positions[10] = Vec2::ZERO; // 한 명의 선수를 정확히 중앙에 배치
-        positions[9] = Vec2::new(9.5 * side, 0.0); // 두 번째 선수를 약간 뒤로 이동
+        positions[10] = Vec2::ZERO; // 키커를 중앙에 배치
+        positions[9] = Vec2::new(side * 9.0, 4.0); // 짧은 측면 패스를 위해 리시버 배치
     } else {
         for pos in positions.iter_mut() {
             if pos.x * side < CENTER_CIRCLE_RADIUS {

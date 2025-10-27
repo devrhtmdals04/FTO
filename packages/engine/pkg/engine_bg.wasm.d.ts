@@ -10,6 +10,7 @@ export const wasmengine_delta: (a: number) => [number, number];
 export const wasmengine_command: (a: number, b: any) => void;
 export const wasmengine_getPlayerClassesJson: (a: number) => [number, number];
 export const wasmengine_getPlayerDataJson: (a: number) => [number, number];
+export const wasmengine_getXtMap: (a: number) => any;
 export const wasmengine_view: (a: number) => [number, number];
 export const start: () => void;
 export const __wbindgen_malloc: (a: number, b: number) => number;

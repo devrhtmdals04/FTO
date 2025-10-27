@@ -1,5 +1,5 @@
 use crate::params::R_BODY;
-use crate::state::{World, N_PLAYERS};
+use crate::state::{PlayerInput20, World, N_PLAYERS};
 use crate::types::{TeamId, Vec2};
 
 /// Distance information about a nearby entity.
@@ -23,21 +23,25 @@ pub struct PerceptionSnapshot {
     pub distance_to_ball: f32,
     pub has_ball: bool,
     pub possession_team: Option<TeamId>,
-    pub closest_teammate: Option<EntityDistance>,
+    /// List of teammates within the player's perception range.
+    pub teammates: Vec<EntityDistance>,
     pub closest_opponent: Option<EntityDistance>,
     pub teammate_support: usize,
     pub opponent_pressure: f32,
+    /// The calculated perception radius for the player, based on their vision stat.
+    pub perception_radius: f32,
 }
 
 impl PerceptionSnapshot {
-    pub fn gather(world: &World, player_index: usize) -> Self {
+    pub fn gather(world: &World, player_index: usize, stats: &PlayerInput20) -> Self {
         let team_id = TeamId::from_index((world.team_id(player_index) as usize).min(1));
+        let player_params = &world.p_params[player_index];
         let player_position = world.player_pos(player_index);
         let player_velocity = world.player_vel(player_index);
         let ball_position = world.ball_pos();
         let ball_velocity = world.ball_vel();
         let distance_to_ball = player_position.distance(ball_position);
-        let ctrl_radius = world.p_params[player_index].ctrl_radius.max(R_BODY);
+        let ctrl_radius = player_params.ctrl_radius.max(R_BODY);
         let has_ball = distance_to_ball <= ctrl_radius;
 
         let possession_team = match world.possession {
@@ -47,7 +51,15 @@ impl PerceptionSnapshot {
             _ => None,
         };
 
-        let mut closest_teammate: Option<EntityDistance> = None;
+        // Get the vision stat from the stats passed as a parameter.
+        let vision_stat = stats.vision as f32;
+
+        // Normalize the vision stat from 0-20 range to 0-1 range.
+        let normalized_vision = vision_stat / 20.0;
+        // A player with 0 vision has a 20m radius, a player with 20 vision has a 50m radius.
+        let perception_radius = 10.0 + normalized_vision * 10.0;
+
+        let mut teammates: Vec<EntityDistance> = Vec::new();
         let mut closest_opponent: Option<EntityDistance> = None;
         let mut teammate_support = 0usize;
 
@@ -63,10 +75,17 @@ impl PerceptionSnapshot {
                 if distance < 1e-3 {
                     continue;
                 }
+                // Add teammates who are within the perception_radius to the list.
+                if distance < perception_radius {
+                    teammates.push(EntityDistance {
+                        index: other,
+                        position,
+                        distance,
+                    });
+                }
                 if distance < 18.0 {
                     teammate_support += 1;
                 }
-                update_closest(&mut closest_teammate, other, position, distance);
             } else {
                 update_closest(&mut closest_opponent, other, position, distance);
             }
@@ -87,10 +106,11 @@ impl PerceptionSnapshot {
             distance_to_ball,
             has_ball,
             possession_team,
-            closest_teammate,
+            teammates,
             closest_opponent,
             teammate_support,
             opponent_pressure,
+            perception_radius,
         }
     }
 

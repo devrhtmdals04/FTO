@@ -10,11 +10,14 @@ export interface PlayerView {
   x: number;
   y: number;
   h: [number, number];
-  vis: number;
+  vis: number; // perception_radius 값을 임시로 담을 필드
+  vis_y: number; // Y축 스케일 추가
+  vis_xz: number; // XZ축 스케일 추가
   team: number;
   has_ball: boolean;
   state: number;
   role: number;
+  perception_radius: number; // 시야 범위 필드 추가
 }
 
 export interface SimView {
