@@ -1,6 +1,6 @@
 #![allow(clippy::missing_inline_in_public_items)]
 
-use crate::ai::{tactics::QuantifiedTactics, TeamPhase};
+use crate::ai::{QuantifiedTactics, TeamPhase};
 use crate::player_data::{get_baseline_player, get_baseline_player_by_id};
 use crate::state::{compute_params_20, PlayerInput20, N_PER_TEAM};
 use crate::types::TeamId;
@@ -18,7 +18,6 @@ pub mod commands;
 pub mod engine;
 pub mod params;
 pub mod physics;
-pub mod player_class;
 pub mod player_data;
 pub mod rng;
 pub mod rules;
@@ -101,9 +100,7 @@ impl WasmEngine {
     }
 
     pub fn set_ai_active(&mut self, player_index: usize, active: bool) {
-        if let Some(is_active) = self.inner.ai_active.get_mut(player_index) {
-            *is_active = active;
-        }
+        self.inner.set_ai_active(player_index, active);
     }
 
     pub fn snapshot(&mut self) -> Vec<u8> {
@@ -126,25 +123,35 @@ impl WasmEngine {
     pub fn get_player_classes_json(&self) -> String {
         let mut result = Vec::with_capacity(N_PLAYERS);
         for idx in 0..N_PLAYERS {
-            if let Some(class) = self.inner.get_player_class(idx) {
-                let team = self.inner.world.p_team[idx];
-                let player_id = self.inner.world.p_player_id[idx];
-                let base_stats = get_baseline_player_by_id(player_id)
-                    .unwrap_or_else(|| get_baseline_player(idx % N_PER_TEAM, team as usize));
+            let team_raw = self.inner.world.p_team[idx];
+            let team = TeamId::from_index(team_raw as usize);
+            let player_id = self.inner.world.p_player_id[idx];
+            let base_stats = get_baseline_player_by_id(player_id)
+                .unwrap_or_else(|| get_baseline_player(idx % N_PER_TEAM, team.index()));
 
-                result.push(PlayerClassExport {
-                    index: idx,
-                    team,
-                    player_id,
-                    name: class.name.to_string(),
-                    role: class.role.clone(),
-                    role_id: class.role.to_u8(),
-                    quantified_tactics: class.quantified_tactics.clone(),
-                    personal_instructions: class.personal_instructions.clone(),
-                    params: class.params,
-                    base_stats,
-                });
-            }
+            let tactic_model = self.inner.team_tactic(team);
+            let quantified = self.inner.world.tactics[team.index()].clone();
+            let lineup_slot = tactic_model
+                .lineup_slot(player_id)
+                .unwrap_or(idx % N_PER_TEAM);
+            let role = tactic_model
+                .role_for_slot(lineup_slot)
+                .cloned()
+                .unwrap_or(crate::types::DetailedPlayerRole::ST);
+            let personal_instructions = tactic_model.personal_instruction(player_id).cloned();
+
+            result.push(PlayerClassExport {
+                index: idx,
+                team: team_raw,
+                player_id,
+                name: base_stats.name.to_string(),
+                role: role.clone(),
+                role_id: role.to_u8(),
+                quantified_tactics: quantified,
+                personal_instructions,
+                params: self.inner.world.p_params[idx],
+                base_stats,
+            });
         }
 
         serde_json::to_string(&result).unwrap_or_else(|_| "[]".to_string())
@@ -172,9 +179,19 @@ impl WasmEngine {
 
     #[wasm_bindgen(js_name = getXtMap)]
     pub fn get_xt_map(&self) -> JsValue {
-        let xt_map_as_vec: Vec<Vec<f32>> =
-            ai::xtmodel::XT_MAP.iter().map(|row| row.to_vec()).collect();
+        let xt_map_as_vec: Vec<Vec<f32>> = ai::xt::XT_MAP.iter().map(|row| row.to_vec()).collect();
         serde_wasm_bindgen::to_value(&xt_map_as_vec).unwrap()
+    }
+
+    fn player_role(&self, idx: usize) -> crate::types::DetailedPlayerRole {
+        let team = TeamId::from_index(self.inner.world.p_team[idx] as usize);
+        let player_id = self.inner.world.p_player_id[idx];
+        let model = self.inner.team_tactic(team);
+        let slot = model.lineup_slot(player_id).unwrap_or(idx % N_PER_TEAM);
+        model
+            .role_for_slot(slot)
+            .cloned()
+            .unwrap_or(crate::types::DetailedPlayerRole::ST)
     }
 
     #[wasm_bindgen]
@@ -217,8 +234,7 @@ impl WasmEngine {
             let perception_radius = 10.0 + normalized_vision * 10.0;
             // --- End of calculation ---
 
-            let player_class = self.inner.get_player_class(i).unwrap();
-            let role = player_class.role.to_u8();
+            let role = self.player_role(i).to_u8();
             let team_id = TeamId::from_index(world.p_team[i] as usize);
             let team_phase_raw = if team_id == TeamId::Home {
                 world.home_team_phase

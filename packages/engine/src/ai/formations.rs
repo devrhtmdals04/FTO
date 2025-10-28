@@ -1,5 +1,5 @@
+use crate::ai::coach::{PhaseFocus, QuantifiedTactics};
 use crate::ai::phase::TeamPhase;
-use crate::ai::tactics::{PhaseFocus, QuantifiedTactics};
 use crate::params::{PITCH_H, PITCH_W};
 use crate::state::N_PER_TEAM;
 use crate::types::{TeamId, Vec2};
@@ -187,11 +187,11 @@ fn depth_scale(focus: PhaseFocus) -> f32 {
     let depth_component = focus.depth * 0.55;
     let tempo_component = focus.tempo * 0.1;
     let pressure_component = focus.pressure * 0.15;
-    (base + depth_component + tempo_component + pressure_component).clamp(0.2, 0.95)
+    (base + depth_component + tempo_component + pressure_component).clamp(0.2_f32, 0.95_f32)
 }
 
 fn width_scale(focus: PhaseFocus) -> f32 {
-    (0.3 + focus.width * 0.6).clamp(0.2, 0.95)
+    (0.3 + focus.width * 0.6).clamp(0.2_f32, 0.95_f32)
 }
 
 fn tempo_push(focus: PhaseFocus, progress: f32) -> f32 {

@@ -1,1 +1,1 @@
-pub use crate::ai::tactics::*;
+pub use crate::ai::coach::*;

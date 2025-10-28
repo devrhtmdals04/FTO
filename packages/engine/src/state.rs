@@ -1,4 +1,4 @@
-use crate::ai::tactics::QuantifiedTactics;
+use crate::ai::QuantifiedTactics;
 use crate::ai::TeamPhase;
 use crate::params::{DT, PITCH_H, PITCH_W, R_BODY};
 use crate::player_data::get_baseline_player_by_id;

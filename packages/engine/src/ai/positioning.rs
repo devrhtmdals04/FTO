@@ -1,8 +1,8 @@
 use super::formations;
-use super::perception::PerceptionSnapshot;
+use super::perception::LegacyPerceptionSnapshot as PerceptionSnapshot;
 use super::phase::TeamPhase;
-use super::tactics::QuantifiedTactics;
-use crate::ai::xtmodel::XT_MAP;
+use crate::ai::xt::XT_MAP;
+use crate::ai::QuantifiedTactics;
 use crate::state::N_PER_TEAM;
 use crate::types::{TeamId, Vec2};
 
@@ -58,11 +58,8 @@ pub fn compute_best_position(ctx: &PositioningContext) -> Vec2 {
     let mut best_position = my_player_pos;
     let mut best_score = -std::f32::INFINITY;
 
-    let ideal_layout = formations::ideal_layout_for_phase(
-        ctx.perception.team_id,
-        ctx.team_phase,
-        ctx.tactics,
-    );
+    let ideal_layout =
+        formations::ideal_layout_for_phase(ctx.perception.team_id, ctx.team_phase, ctx.tactics);
     let player_index_in_team = ctx.player_index % N_PER_TEAM;
     let home_pos = ideal_layout.positions[player_index_in_team];
 
@@ -86,11 +83,10 @@ pub fn compute_best_position(ctx: &PositioningContext) -> Vec2 {
 
             let score_xt = calculate_normalized_xt_score(candidate_pos, ctx.perception.team_id);
             let score_formation = calculate_normalized_formation_score(candidate_pos, home_pos);
-            let score_space = calculate_normalized_space_score(candidate_pos, ctx.perception);
+            let _score_space = calculate_normalized_space_score(candidate_pos, ctx.perception);
 
-            let total_score = (weights.w_xt * score_xt)
-                + (weights.w_formation * score_formation);
-                // + (weights.w_space * score_space);
+            let total_score = (weights.w_xt * score_xt) + (weights.w_formation * score_formation);
+            // + (weights.w_space * score_space);
 
             if total_score > best_score {
                 best_score = total_score;

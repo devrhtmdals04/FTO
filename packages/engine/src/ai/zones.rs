@@ -1,7 +1,7 @@
 use crate::types::Vec2;
 
 const PITCH_LENGTH: f32 = 105.0; // Corresponds to x-axis
-const PITCH_WIDTH: f32 = 68.0;  // Corresponds to y-axis
+const PITCH_WIDTH: f32 = 68.0; // Corresponds to y-axis
 
 /// Represents the 7 longitudinal zones of the pitch, from own goal to opponent's goal.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]

@@ -63,16 +63,12 @@ playerclass example:
       - 이 단계는 엔진·AI에서 즉시 사용하기 쉽도록 전술을 간단한 실수값으로 정규화하는 전처리 역할입니다. (다만 문자열/포메이션 등 다른 정보는 여기서 반
         영되지 않습니다.)
   3. Engine 내부 상태로 흘려보내기
-      - Engine::rebuild_tactical_state에서 world.initialize_params를 호출해 각 팀 라인업 ID(예: [1,2,…,11])에 맞춰 선수 능력치를 설정하고,
-          - personal_instructions (JSON에서 넘어온 개인 지시사항),
-          - role (JSON의 roles 배열과 라인업 매칭 결과),
-          - params (라인업 ID를 통해 계산한 물리 파라미터) 등이 들어갑니다.
-            즉, 파싱된 전술이 선수 클래스에 그대로 저장되는 셈입니다.
+      - Engine::rebuild_tactical_state에서 world.initialize_params를 호출해 각 팀 라인업 ID(예: [1,2,…,11])에 맞춰 선수 능력치를 설정합니다.
+      - 동시에 QuantifiedTactics는 world.tactics와 team_tactics에 저장되며, 팀 컨텍스트(TeamCtx)에 복사되어 AI가 참조할 수 있는 형태로 준비됩니다.
+      - personal_instructions, role 매칭 등 세부 전술 정보는 TacticModel을 통해 필요 시 조회합니다.
   4. AI 단계에서의 활용
-      - 매 틱마다 Engine::update_ai → PlayerClass::update_ai → PlayerFSM::tick 순으로 AI가 실행됩니다.
-      - 현재 FSM 의사결정(ai/fsm.rs)은 PlayerClass에 담긴 quantified_tactics나 personal_instructions를 아직 사용하지 않고 TODO로 남아 있습니다.
-        따라서 “전술이 선수 AI에 어떤 영향이 있는가?”라는 질문에 대한 실질적인 부분은 앞으로 구현이 필요한 상태입니다.
-        전술 데이터를 AI에 녹이려면 PlayerClass에 있는 수치/지시를 FSM이나 perception·actions 로직에 참조하도록 추가 로직을 작성해야 합니다.
+      - 매 틱마다 Engine::update_ai → AiScheduler::tick → PlayerAgent::decision/execution 순으로 새 파이프라인이 실행됩니다.
+      - 아직 Decision/Execution 모듈에 전술 수치를 반영하는 로직은 TODO 상태이므로, QuantifiedTactics 및 개인 지시를 활용한 세부 전략은 계속 확장해야 합니다.
 
-  정리하면, JSON 문자열 → Tactic → QuantifiedTactics → world & PlayerClass까지 값이 전달되는 파이프라인은 이미 마련되어 있고, 실제로 AI 행동에 반영하는
+  정리하면, JSON 문자열 → Tactic → QuantifiedTactics → world & TeamCtx까지 값이 전달되는 파이프라인은 이미 마련되어 있고, 실제로 AI 행동에 반영하는
   로직만 채워 넣으면 됩니다.

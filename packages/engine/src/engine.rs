@@ -1,14 +1,16 @@
 use crate::ai::phase::evaluate_team_phase;
-use crate::ai::tactics::TacticModel;
-use crate::ai::{kickoff_positions, PhaseLayout, Scheduler};
+use crate::ai::{
+    kickoff_positions, AiScheduler, BallView, EngineCmd, EngineCmdSink, EnginePlayerView,
+    EngineView, PhaseLayout, PitchView, PlayerAgent, PlayerId, Role, TacticModel, TeamCtx, Vec3,
+};
+use crate::params::{PITCH_H, PITCH_W};
 use crate::commands::{parse_command, Cmd, CommandBuffer, CommandError, ParseError};
 use crate::physics::{ball::step_ball, player::step_players, PhysicsContext};
-use crate::player_class::PlayerClass;
 use crate::rng::DeterministicRng;
 use crate::rules::{offside::check_offside, referee::update_referee, restarts::handle_restarts};
 use crate::snapshot::{self, DeltaBuffer, HashGuard, QuantizedWorld, SnapshotBuffer};
 use crate::state::{World, N_PER_TEAM, N_PLAYERS, N_TEAMS};
-use crate::types::{BallMode, Tactic, TeamId, Vec2};
+use crate::types::{BallMode, DetailedPlayerRole, Tactic, TeamId, Vec2};
 use log::{info, warn};
 use std::f32::consts::PI;
 
@@ -16,14 +18,60 @@ pub struct Engine {
     pub world: World,
     _rng: DeterministicRng,
     commands: CommandBuffer,
-    scheduler: Scheduler,
     physics: PhysicsContext,
-    player_classes: Vec<PlayerClass>,
     pub ai_active: Vec<bool>,
     last_hash: [u8; 32],
     last_quantized: Option<QuantizedWorld>,
     team_tactics: [TacticModel; N_TEAMS],
     kickoff_pass_dispatched: bool,
+
+    // New AI System
+    pub ai_scheduler: AiScheduler,
+    pub home_team_ctx: TeamCtx,
+    pub away_team_ctx: TeamCtx,
+    player_views: Vec<EnginePlayerView>,
+}
+
+struct EngineViewState {
+    tick: u64,
+    pitch: PitchView,
+    ball: BallView,
+    players: [EnginePlayerView; N_PLAYERS],
+}
+
+impl EngineView for EngineViewState {
+    fn tick(&self) -> u64 {
+        self.tick
+    }
+
+    fn pitch(&self) -> PitchView {
+        self.pitch
+    }
+
+    fn ball(&self) -> BallView {
+        self.ball
+    }
+
+    fn players(&self) -> &[EnginePlayerView] {
+        &self.players
+    }
+}
+
+#[derive(Default)]
+struct EngineCmdQueue {
+    items: Vec<EngineCmd>,
+}
+
+impl EngineCmdQueue {
+    fn drain(self) -> Vec<EngineCmd> {
+        self.items
+    }
+}
+
+impl EngineCmdSink for EngineCmdQueue {
+    fn push(&mut self, cmd: EngineCmd) {
+        self.items.push(cmd);
+    }
 }
 
 impl Engine {
@@ -90,26 +138,248 @@ impl Engine {
             world,
             _rng: DeterministicRng::new(seed),
             commands: CommandBuffer::new(),
-            scheduler: Scheduler::new(),
             physics: PhysicsContext::new(),
-            player_classes: Vec::new(),
             ai_active: vec![true; N_PLAYERS],
             last_hash: [0; 32],
             last_quantized: None,
             team_tactics: [home_model.clone(), away_model.clone()],
             kickoff_pass_dispatched: false,
+            // New AI
+            ai_scheduler: AiScheduler::new(),
+            home_team_ctx: TeamCtx::default(),
+            away_team_ctx: TeamCtx::default(),
+            player_views: vec![EnginePlayerView::default(); N_PLAYERS],
         };
         info!("[Engine] Rebuilding initial tactical state");
         engine.rebuild_tactical_state();
-
-        if let Some(class) = engine.player_classes.get(5) {
-            info!("Player 5 Class: {:?}", class);
-        }
-        if let Some(class) = engine.player_classes.get(10) {
-            info!("Player 10 Class: {:?}", class);
-        }
         engine.update_hash();
         engine
+    }
+
+    fn build_engine_view_state(&self) -> EngineViewState {
+        EngineViewState {
+            tick: self.world.tick as u64,
+            pitch: self.build_pitch_view(),
+            ball: self.build_ball_view(),
+            players: std::array::from_fn(|idx| self.build_player_view(idx)),
+        }
+    }
+
+    fn build_pitch_view(&self) -> PitchView {
+        PitchView {
+            length: PITCH_W,
+            width: PITCH_H,
+            our_goal: Vec2::new(-PITCH_W * 0.5, 0.0),
+            their_goal: Vec2::new(PITCH_W * 0.5, 0.0),
+        }
+    }
+
+    fn build_ball_view(&self) -> BallView {
+        BallView {
+            pos: Vec3 {
+                x: self.world.bx,
+                y: self.world.by,
+                z: self.world.bz,
+            },
+            vel: Vec3 {
+                x: self.world.bvx,
+                y: self.world.bvy,
+                z: self.world.bvz,
+            },
+        }
+    }
+
+    fn build_player_view(&self, idx: usize) -> EnginePlayerView {
+        EnginePlayerView {
+            id: idx as PlayerId,
+            team: self.world.p_team[idx],
+            pos: Vec2::new(self.world.px[idx], self.world.py[idx]),
+            vel: Vec2::new(self.world.pvx[idx], self.world.pvy[idx]),
+            body_angle: self.world.pfacing[idx],
+            has_ball: self.world.player_has_ball(idx),
+        }
+    }
+
+    fn collect_execution_commands<S: EngineCmdSink>(
+        team_ctx: &mut TeamCtx,
+        tick: u64,
+        ai_active: &[bool],
+        sink: &mut S,
+    ) {
+        if team_ctx.comm_broker.inboxes.len() < team_ctx.players.len() {
+            team_ctx
+                .comm_broker
+                .inboxes
+                .resize(team_ctx.players.len(), crate::ai::comm::Inbox::default());
+        }
+        for (local_idx, player) in team_ctx.players.iter_mut().enumerate() {
+            player.perception.local_index = local_idx;
+            let global_id = player.id as usize;
+            if ai_active.get(global_id).copied().unwrap_or(true) {
+                player.execution.substep(tick, player.id, sink);
+            }
+        }
+    }
+
+    fn sync_agent_activity(&mut self) {
+        for agent in &mut self.home_team_ctx.players {
+            let idx = agent.id as usize;
+            agent.enabled = self.ai_active.get(idx).copied().unwrap_or(true);
+        }
+        for agent in &mut self.away_team_ctx.players {
+            let idx = agent.id as usize;
+            agent.enabled = self.ai_active.get(idx).copied().unwrap_or(true);
+        }
+    }
+
+    fn refresh_team_contexts(&mut self) {
+        let home_quant = &self.world.tactics[TeamId::Home.index()];
+        self.home_team_ctx.team_id = TeamId::Home.index() as u8;
+        self.home_team_ctx.tactics = Self::tactics_view_from_quant(home_quant);
+
+        let away_quant = &self.world.tactics[TeamId::Away.index()];
+        self.away_team_ctx.team_id = TeamId::Away.index() as u8;
+        self.away_team_ctx.tactics = Self::tactics_view_from_quant(away_quant);
+    }
+
+    fn tactics_view_from_quant(
+        quant: &crate::ai::QuantifiedTactics,
+    ) -> crate::ai::coach::TacticsView {
+        let mut view = crate::ai::coach::TacticsView::default();
+        if let Some(pass) = quant.meta_value("pass_distance") {
+            view.pass_risk_max = pass;
+        }
+        if let Some(press) = quant.meta_value("counter_press_bias") {
+            view.press_intensity = press;
+        }
+        if let Some(width) = quant.meta_value("cross_frequency") {
+            view.width = (view.width * 0.5) + (width * 0.5);
+        }
+        view
+    }
+
+    fn apply_engine_cmd(&mut self, cmd: EngineCmd) {
+        match cmd {
+            EngineCmd::RunTo { id, point, max_speed } => {
+                let idx = id as usize;
+                if idx >= N_PLAYERS {
+                    return;
+                }
+                let origin = Vec2::new(self.world.px[idx], self.world.py[idx]);
+                let mut dir = (point - origin).normalize();
+                if dir.norm_squared() < 1e-6 {
+                    dir = Vec2::new(1.0, 0.0);
+                }
+                let speed = max_speed.max(0.0);
+                self.world.pcommand[idx].target_vel = dir * speed;
+            }
+            EngineCmd::FaceTo { id, dir } => {
+                let idx = id as usize;
+                if idx >= N_PLAYERS {
+                    return;
+                }
+                if dir.norm_squared() > 1e-6 {
+                    self.world.pfacing[idx] = dir.y.atan2(dir.x);
+                }
+            }
+            EngineCmd::Shield { .. } => {
+                // TODO: integrate shield behaviour with physics command state.
+            }
+            EngineCmd::GroundPass { from, to, lead, pace } => {
+                let idx = from as usize;
+                let recv_idx = to as usize;
+                if idx >= N_PLAYERS || recv_idx >= N_PLAYERS {
+                    return;
+                }
+                let receiver_pos = self.world.player_pos(recv_idx);
+                let target = receiver_pos + lead;
+                self.apply_ball_command(from as u8, target, pace, 0.0, false);
+            }
+            EngineCmd::LoftedPass { from, to, apex, pace } => {
+                let idx = from as usize;
+                let recv_idx = to as usize;
+                if idx >= N_PLAYERS || recv_idx >= N_PLAYERS {
+                    return;
+                }
+                let target = self.world.player_pos(recv_idx);
+                self.apply_ball_command(from as u8, target, pace, apex, true);
+            }
+            EngineCmd::ThroughBall { from, to, lead, pace } => {
+                let recv_idx = to as usize;
+                if recv_idx >= N_PLAYERS {
+                    return;
+                }
+                let target = self.world.player_pos(recv_idx) + lead;
+                self.apply_ball_command(from as u8, target, pace, 0.0, false);
+            }
+            EngineCmd::Cross { from, zone, pace } => {
+                let idx = from as usize;
+                if idx >= N_PLAYERS {
+                    return;
+                }
+                let side = if self.world.p_team[idx] == TeamId::Home.index() as u8 {
+                    1.0
+                } else {
+                    -1.0
+                };
+                let base_x = side * (PITCH_W * 0.5 - 6.0);
+                let target = match zone {
+                    crate::ai::CrossZone::Near => Vec2::new(base_x, 3.0),
+                    crate::ai::CrossZone::PenaltySpot => Vec2::new(side * 0.0, 0.0),
+                    crate::ai::CrossZone::Far => Vec2::new(base_x, -3.0),
+                    crate::ai::CrossZone::Cutback => Vec2::new(side * (PITCH_W * 0.5 - 12.0), 0.0),
+                };
+                self.apply_ball_command(from as u8, target, pace, 8.0, true);
+            }
+            EngineCmd::Shoot { from, aim, power } => {
+                self.apply_ball_command(
+                    from as u8,
+                    aim,
+                    18.0 + power * 6.0,
+                    6.0 * power,
+                    true,
+                );
+            }
+            EngineCmd::Tackle { .. } => {
+                // TODO: tackle integration with physics system.
+            }
+        }
+    }
+
+    pub fn set_ai_active(&mut self, player_index: usize, active: bool) {
+        if let Some(slot) = self.ai_active.get_mut(player_index) {
+            *slot = active;
+        }
+        self.sync_agent_activity();
+    }
+
+    pub(crate) fn team_tactic(&self, team: TeamId) -> &TacticModel {
+        &self.team_tactics[team.index()]
+    }
+
+    fn update_player_views(&mut self) {
+        if self.player_views.len() != N_PLAYERS {
+            self.player_views = vec![EnginePlayerView::default(); N_PLAYERS];
+        }
+        for idx in 0..N_PLAYERS {
+            self.player_views[idx] = self.build_player_view(idx);
+        }
+    }
+
+    fn map_role(role: &DetailedPlayerRole) -> Role {
+        match role {
+            DetailedPlayerRole::GK => Role::GK,
+            DetailedPlayerRole::LB => Role::LB,
+            DetailedPlayerRole::LCB | DetailedPlayerRole::CB => Role::LCB,
+            DetailedPlayerRole::RCB => Role::RCB,
+            DetailedPlayerRole::RB => Role::RB,
+            DetailedPlayerRole::LM | DetailedPlayerRole::LF | DetailedPlayerRole::LW => Role::LW,
+            DetailedPlayerRole::LCM => Role::LCM,
+            DetailedPlayerRole::RCM | DetailedPlayerRole::CAM => Role::RCM,
+            DetailedPlayerRole::RM | DetailedPlayerRole::RF | DetailedPlayerRole::RW => Role::RW,
+            DetailedPlayerRole::CDM => Role::CDM,
+            DetailedPlayerRole::ST => Role::ST,
+        }
     }
 
     pub fn tick(&mut self) {
@@ -117,7 +387,6 @@ impl Engine {
         if self.world.tick % 50 == 0 {
             info!("[Engine] Tick {}", self.world.tick);
         }
-        self.scheduler.step();
         self.world.advance_overrides();
         self.process_commands();
         self.update_ai();
@@ -134,6 +403,7 @@ impl Engine {
         let _offside = check_offside(&self.world);
         self.update_hash();
         self.physics.rebuild_spatial(&self.world);
+        self.update_player_views();
     }
 
     fn update_ai(&mut self) {
@@ -143,20 +413,33 @@ impl Engine {
         self.world.home_team_phase = home_phase.to_u8();
         self.world.away_team_phase = away_phase.to_u8();
 
-        for i in 0..N_PLAYERS {
-            if self.scheduler.should_evaluate(i) && self.ai_active[i] {
-                let team_phase = if self.player_classes[i].team_id == TeamId::Home {
-                    home_phase
-                } else {
-                    away_phase
-                };
+        self.sync_agent_activity();
+        self.refresh_team_contexts();
 
-                if let Some(cmd) = self.player_classes[i].update_ai(&self.world, team_phase) {
-                    self.commands
-                        .push(self.world.tick, self.world.tick + 1, cmd)
-                        .ok();
-                }
-            }
+        let engine_view = self.build_engine_view_state();
+        let tick = engine_view.tick;
+        let mut cmd_queue = EngineCmdQueue::default();
+
+        self.ai_scheduler
+            .tick(tick, &mut self.home_team_ctx, &engine_view);
+        Self::collect_execution_commands(
+            &mut self.home_team_ctx,
+            tick,
+            &self.ai_active,
+            &mut cmd_queue,
+        );
+
+        self.ai_scheduler
+            .tick(tick, &mut self.away_team_ctx, &engine_view);
+        Self::collect_execution_commands(
+            &mut self.away_team_ctx,
+            tick,
+            &self.ai_active,
+            &mut cmd_queue,
+        );
+
+        for cmd in cmd_queue.drain() {
+            self.apply_engine_cmd(cmd);
         }
     }
 
@@ -180,8 +463,6 @@ impl Engine {
             let params = self.world.p_params[player_id];
             if closest_player_dist_sq < (params.ctrl_radius * params.ctrl_radius) {
                 self.world.possession = self.world.team_id(player_id) as i8;
-            } else {
-                self.world.possession = -1;
             }
         } else {
             self.world.possession = -1;
@@ -190,10 +471,6 @@ impl Engine {
 
     pub fn state_hash(&self) -> [u8; 32] {
         self.last_hash
-    }
-
-    pub fn get_player_class(&self, player_id: usize) -> Option<&PlayerClass> {
-        self.player_classes.get(player_id)
     }
 
     fn process_commands(&mut self) {
@@ -314,20 +591,67 @@ impl Engine {
         self.world.tactics[TeamId::Home.index()] = home_model.quantified();
         self.world.tactics[TeamId::Away.index()] = away_model.quantified();
 
-        self.player_classes = (0..N_PLAYERS)
-            .map(|i| {
-                let team_id = TeamId::from_index(i / N_PER_TEAM);
-                let model = if team_id == TeamId::Home {
-                    home_model
-                } else {
-                    away_model
-                };
-                PlayerClass::new(&self.world, model, i)
-            })
-            .collect();
-
+        self.rebuild_ai_agents();
+        self.refresh_team_contexts();
         self.align_players_for_kickoff();
         self.physics.rebuild_spatial(&self.world);
+    }
+
+    fn rebuild_ai_agents(&mut self) {
+        let home_model = &self.team_tactics[TeamId::Home.index()];
+        let away_model = &self.team_tactics[TeamId::Away.index()];
+
+        self.home_team_ctx.team_id = TeamId::Home.index() as u8;
+        self.home_team_ctx.seed = self.world.seed;
+        self.home_team_ctx.tactics = crate::ai::coach::TacticsView::default();
+        self.home_team_ctx.xt_grid = crate::ai::coach::XtGrid::default();
+        self.home_team_ctx.players = (0..N_PER_TEAM)
+            .map(|slot| {
+                let role = home_model
+                    .role_for_slot(slot)
+                    .map(Self::map_role)
+                    .unwrap_or(Role::ST);
+                PlayerAgent {
+                    id: slot as u16,
+                    role,
+                    slot_mask: (slot % 2) as u8,
+                    ..Default::default()
+                }
+            })
+            .collect();
+        self.home_team_ctx
+            .comm_broker
+            .inboxes = vec![crate::ai::comm::Inbox::default(); N_PER_TEAM];
+        for (idx, agent) in self.home_team_ctx.players.iter_mut().enumerate() {
+            agent.perception.local_index = idx;
+        }
+
+        self.away_team_ctx.team_id = TeamId::Away.index() as u8;
+        self.away_team_ctx.seed = self.world.seed ^ 0x9E3779B97F4A7C15;
+        self.away_team_ctx.tactics = crate::ai::coach::TacticsView::default();
+        self.away_team_ctx.xt_grid = crate::ai::coach::XtGrid::default();
+        self.away_team_ctx.players = (0..N_PER_TEAM)
+            .map(|slot| {
+                let role = away_model
+                    .role_for_slot(slot)
+                    .map(Self::map_role)
+                    .unwrap_or(Role::ST);
+                PlayerAgent {
+                    id: (slot + N_PER_TEAM) as u16,
+                    role,
+                    slot_mask: (slot % 2) as u8,
+                    ..Default::default()
+                }
+            })
+            .collect();
+        self.away_team_ctx
+            .comm_broker
+            .inboxes = vec![crate::ai::comm::Inbox::default(); N_PER_TEAM];
+        for (idx, agent) in self.away_team_ctx.players.iter_mut().enumerate() {
+            agent.perception.local_index = idx;
+        }
+
+        self.sync_agent_activity();
     }
 
     fn apply_ball_command(
@@ -387,14 +711,14 @@ impl Engine {
         let home_layout = kickoff_positions(
             TeamId::Home,
             attacking_team == TeamId::Home,
-            &self.player_classes[0].quantified_tactics,
+            &self.world.tactics[TeamId::Home.index()],
         );
         self.apply_team_layout(TeamId::Home, &home_layout);
 
         let away_layout = kickoff_positions(
             TeamId::Away,
             attacking_team == TeamId::Away,
-            &self.player_classes[N_PER_TEAM].quantified_tactics,
+            &self.world.tactics[TeamId::Away.index()],
         );
         self.apply_team_layout(TeamId::Away, &away_layout);
     }
@@ -414,13 +738,6 @@ impl Engine {
             self.world.pcommand[idx].target_vel = Vec2::ZERO;
         }
 
-        for slot in 0..N_PER_TEAM {
-            let idx = base_index + slot;
-            if let Some(class) = self.player_classes.get_mut(idx) {
-                let anchor = self.world.player_pos(idx);
-                class.reset_anchor(anchor);
-            }
-        }
     }
 
     fn sync_restart_layouts(&mut self) {
