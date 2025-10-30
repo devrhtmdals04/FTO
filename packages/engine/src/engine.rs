@@ -1,20 +1,21 @@
+use crate::ai::debug as dbg;
 use crate::ai::phase::evaluate_team_phase;
-use crate::ai::{ 
+use crate::ai::{
     kickoff_positions, AiScheduler, BallView, EngineCmd, EngineCmdSink, EnginePlayerView,
-    EngineView, PhaseLayout, PitchView, PlayerAgent, PlayerId, Role, TacticModel, TeamCtx, Vec3,
+    EngineView, Footed, PhaseLayout, PitchView, PlayerAgent, PlayerId, Role, TacticModel, TeamCtx,
+    Vec3,
 };
+use crate::commands::{parse_command, Cmd, CommandBuffer, CommandError, ParseError};
 use crate::logging_sink::LoggingSink;
 use crate::params::{PITCH_H, PITCH_W};
-use crate::commands::{parse_command, Cmd, CommandBuffer, CommandError, ParseError};
 use crate::physics::{ball::step_ball, player::step_players, PhysicsContext};
 use crate::rng::DeterministicRng;
 use crate::rules::{offside::check_offside, referee::update_referee, restarts::handle_restarts};
 use crate::snapshot::{self, DeltaBuffer, HashGuard, QuantizedWorld, SnapshotBuffer};
 use crate::state::{World, N_PER_TEAM, N_PLAYERS, N_TEAMS};
-use crate::types::{BallMode, DetailedPlayerRole, Tactic, TeamId, Vec2};
+use crate::types::{BallMode, DetailedPlayerRole, Foot, PlayerParams, Tactic, TeamId, Vec2};
 use log::{info, warn};
 use std::f32::consts::PI;
-use crate::ai::debug as dbg;
 
 pub struct Engine {
     pub world: World,
@@ -57,6 +58,38 @@ impl EngineView for EngineViewState {
     fn players(&self) -> &[EnginePlayerView] {
         &self.players
     }
+}
+
+fn normalize_range(value: f32, min: f32, max: f32) -> f32 {
+    if max <= min {
+        return 0.0;
+    }
+    ((value - min) / (max - min)).clamp(0.0, 1.0)
+}
+
+fn normalize_inverse(value: f32, min: f32, max: f32) -> f32 {
+    1.0 - normalize_range(value, min, max)
+}
+
+fn sync_agent_attributes(agent: &mut PlayerAgent, params: PlayerParams) {
+    agent.execution.controllers.loco.max_speed = params.v_max;
+    agent.execution.controllers.loco.accel = params.a_max;
+    agent.execution.controllers.loco.turn_rate = params.omega_max;
+
+    agent.execution.controllers.ball.first_touch_power = params.pass_speed_max;
+
+    let attrs = &mut agent.ctx.attrs;
+    attrs.speed = normalize_range(params.v_max, 6.0, 9.5);
+    attrs.accel = normalize_range(params.a_max, 6.0, 9.0);
+    attrs.pass = normalize_inverse(params.pass_err_sigma, 0.30, 1.20);
+    attrs.dribble = normalize_range(params.ctrl_radius, 0.90, 1.50);
+    attrs.stamina_max = normalize_range(params.stamina_max, 90.0, 140.0);
+    attrs.height = params.height_m;
+    attrs.weight = params.mass_kg;
+    attrs.foot = match params.foot {
+        Foot::L => Footed::Left,
+        Foot::R => Footed::Right,
+    };
 }
 
 #[derive(Default)]
@@ -262,7 +295,11 @@ impl Engine {
 
     fn apply_engine_cmd(&mut self, cmd: EngineCmd) {
         match cmd {
-            EngineCmd::RunTo { id, point, max_speed } => {
+            EngineCmd::RunTo {
+                id,
+                point,
+                max_speed,
+            } => {
                 let idx = id as usize;
                 if idx >= N_PLAYERS {
                     return;
@@ -287,7 +324,12 @@ impl Engine {
             EngineCmd::Shield { .. } => {
                 // TODO: integrate shield behaviour with physics command state.
             }
-            EngineCmd::GroundPass { from, to, lead, pace } => {
+            EngineCmd::GroundPass {
+                from,
+                to,
+                lead,
+                pace,
+            } => {
                 let idx = from as usize;
                 let recv_idx = to as usize;
                 if idx >= N_PLAYERS || recv_idx >= N_PLAYERS {
@@ -297,7 +339,12 @@ impl Engine {
                 let target = receiver_pos + lead;
                 self.apply_ball_command(from as u8, target, pace, 0.0, false);
             }
-            EngineCmd::LoftedPass { from, to, apex, pace } => {
+            EngineCmd::LoftedPass {
+                from,
+                to,
+                apex,
+                pace,
+            } => {
                 let idx = from as usize;
                 let recv_idx = to as usize;
                 if idx >= N_PLAYERS || recv_idx >= N_PLAYERS {
@@ -306,7 +353,12 @@ impl Engine {
                 let target = self.world.player_pos(recv_idx);
                 self.apply_ball_command(from as u8, target, pace, apex, true);
             }
-            EngineCmd::ThroughBall { from, to, lead, pace } => {
+            EngineCmd::ThroughBall {
+                from,
+                to,
+                lead,
+                pace,
+            } => {
                 let recv_idx = to as usize;
                 if recv_idx >= N_PLAYERS {
                     return;
@@ -334,13 +386,7 @@ impl Engine {
                 self.apply_ball_command(from as u8, target, pace, 8.0, true);
             }
             EngineCmd::Shoot { from, aim, power } => {
-                self.apply_ball_command(
-                    from as u8,
-                    aim,
-                    18.0 + power * 6.0,
-                    6.0 * power,
-                    true,
-                );
+                self.apply_ball_command(from as u8, aim, 18.0 + power * 6.0, 6.0 * power, true);
             }
             EngineCmd::Tackle { .. } => {
                 // TODO: tackle integration with physics system.
@@ -653,11 +699,12 @@ impl Engine {
                 }
             })
             .collect();
-        self.home_team_ctx
-            .comm_broker
-            .inboxes = vec![crate::ai::comm::Inbox::default(); N_PER_TEAM];
+        self.home_team_ctx.comm_broker.inboxes =
+            vec![crate::ai::comm::Inbox::default(); N_PER_TEAM];
         for (idx, agent) in self.home_team_ctx.players.iter_mut().enumerate() {
             agent.perception.local_index = idx;
+            let params = self.world.p_params[idx];
+            sync_agent_attributes(agent, params);
         }
 
         self.away_team_ctx.team_id = TeamId::Away.index() as u8;
@@ -678,11 +725,12 @@ impl Engine {
                 }
             })
             .collect();
-        self.away_team_ctx
-            .comm_broker
-            .inboxes = vec![crate::ai::comm::Inbox::default(); N_PER_TEAM];
+        self.away_team_ctx.comm_broker.inboxes =
+            vec![crate::ai::comm::Inbox::default(); N_PER_TEAM];
         for (idx, agent) in self.away_team_ctx.players.iter_mut().enumerate() {
             agent.perception.local_index = idx;
+            let params = self.world.p_params[agent.id as usize];
+            sync_agent_attributes(agent, params);
         }
 
         self.sync_agent_activity();
@@ -771,7 +819,6 @@ impl Engine {
             self.world.pfacing[idx] = facing;
             self.world.pcommand[idx].target_vel = Vec2::ZERO;
         }
-
     }
 
     fn sync_restart_layouts(&mut self) {

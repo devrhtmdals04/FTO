@@ -1,10 +1,11 @@
-use crate::ai::{EngineView, TeamCtx};
+use crate::ai::{EngineView, Footed, PlayerAgent, TeamCtx, Vec2};
 use crate::params::AI_REEVAL_PERIOD;
 
 use super::comm::{MsgPayload, MsgType, TeamMessage};
 use super::decision::Decision;
 use super::decision::types::DecisionEnvelope;
 use super::perception::{ActuationView, PerceptionSnapshot};
+use super::execution::runtime::ApplyContext;
 use crate::ai::debug as dbg;
 
 
@@ -59,7 +60,12 @@ impl AiScheduler {
                 seed,
             );
 
-            if player.execution.apply(decision.clone(), slot_tick, &engine.pitch()) {
+            let apply_ctx = build_apply_context(&decision, &snapshot, player);
+
+            if player
+                .execution
+                .apply(decision.clone(), slot_tick, &engine.pitch(), apply_ctx)
+            {
                 let message = decision_to_msg(&decision, &snapshot);
                 let intent_id = decision.intent_id;
                 team_ctx.comm_broker.enqueue(intent_id, player_id, message);
@@ -67,6 +73,94 @@ impl AiScheduler {
         }
 
         self.phase_tick_mod ^= 1;
+    }
+}
+
+fn build_apply_context(
+    decision: &DecisionEnvelope,
+    snapshot: &PerceptionSnapshot,
+    agent: &PlayerAgent,
+) -> ApplyContext {
+    let target_point = resolve_target_point(decision, snapshot);
+    let stamina = snapshot.me.stamina.clamp(0.0, 1.0);
+    let pass_skill = agent.ctx.attrs.pass.clamp(0.0, 1.0);
+
+    let mut weak_foot = false;
+    if let Some(target) = target_point {
+        let dir = target - snapshot.me.pos;
+        if dir.norm_squared() > 1e-5 {
+            let target_angle = dir.y.atan2(dir.x);
+            let delta = wrap_angle(target_angle - snapshot.me.body_angle);
+            weak_foot = infer_weak_foot(agent.ctx.attrs.foot, delta);
+        }
+    }
+
+    ApplyContext {
+        body_angle: snapshot.me.body_angle,
+        player_pos: snapshot.me.pos,
+        player_vel: snapshot.me.vel,
+        stamina,
+        pass_skill,
+        weak_foot,
+        turn_rate_max: compute_turn_rate(agent),
+        target_point,
+        ball_pos: Vec2 {
+            x: snapshot.ball.pos.x,
+            y: snapshot.ball.pos.y,
+        },
+    }
+}
+
+fn resolve_target_point(decision: &DecisionEnvelope, snapshot: &PerceptionSnapshot) -> Option<Vec2> {
+    match &decision.decision {
+        Decision::GroundPass { target_id, lead, .. } => {
+            find_player_pos(snapshot, *target_id).map(|pos| pos + *lead)
+        }
+        Decision::ThroughBall { target_id, lead, .. } => {
+            find_player_pos(snapshot, *target_id).map(|pos| pos + *lead)
+        }
+        Decision::LoftedPass { target_id, .. } => find_player_pos(snapshot, *target_id),
+        Decision::Shoot { aim, .. } => Some(*aim),
+        _ => None,
+    }
+}
+
+fn find_player_pos(snapshot: &PerceptionSnapshot, id: u16) -> Option<Vec2> {
+    if snapshot.me.id == id {
+        return Some(snapshot.me.pos);
+    }
+    snapshot
+        .mates
+        .iter()
+        .find(|p| p.id == id)
+        .map(|p| p.pos)
+}
+
+fn compute_turn_rate(agent: &PlayerAgent) -> f32 {
+    let omega = agent.execution.controllers.loco.turn_rate;
+    if omega > 0.0 {
+        omega
+    } else {
+        4.0
+    }
+}
+
+fn wrap_angle(mut angle: f32) -> f32 {
+    while angle > core::f32::consts::PI {
+        angle -= 2.0 * core::f32::consts::PI;
+    }
+    while angle < -core::f32::consts::PI {
+        angle += 2.0 * core::f32::consts::PI;
+    }
+    angle
+}
+
+fn infer_weak_foot(foot: Footed, delta: f32) -> bool {
+    const DEAD_ZONE: f32 = 0.2; // radians
+    match foot {
+        Footed::Both => false,
+        Footed::Right => delta < -DEAD_ZONE,
+        Footed::Left => delta > DEAD_ZONE,
     }
 }
 

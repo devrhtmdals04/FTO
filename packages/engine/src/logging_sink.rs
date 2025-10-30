@@ -1,4 +1,3 @@
-
 use crate::ai::{EngineCmd, EngineCmdSink};
 
 pub struct LoggingSink<'a> {

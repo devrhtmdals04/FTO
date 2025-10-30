@@ -1,8 +1,71 @@
+use super::constraints::{self, EmissionDecision, EmissionInput, EmissionOutcome, EmissionSurface, SkillProfile};
 use super::controllers::Controllers;
 use super::planner::Planner;
 use crate::ai::decision::{self, Decision, DecisionEnvelope, IntentTarget, IntentType};
-use crate::ai::{EngineCmd, EngineCmdSink, PitchView, PlayerId};
 use crate::ai::debug::{self as dbg};
+use crate::ai::{EngineCmd, EngineCmdSink, PitchView, PlayerId, Vec2};
+use crate::params::DT;
+
+#[derive(Clone, Debug, Default)]
+pub struct ApplyContext {
+    pub body_angle: f32,
+    pub player_pos: Vec2,
+    pub player_vel: Vec2,
+    pub stamina: f32,
+    pub pass_skill: f32,
+    pub weak_foot: bool,
+    pub turn_rate_max: f32,
+    pub target_point: Option<Vec2>,
+    pub ball_pos: Vec2,
+}
+
+#[derive(Clone, Debug, Default)]
+struct PendingEmission {
+    body_angle: f32,
+    player_pos: Vec2,
+    player_vel: Vec2,
+    stamina: f32,
+    pass_skill: f32,
+    weak_foot: bool,
+    turn_rate_max: f32,
+    target_point: Option<Vec2>,
+}
+
+impl PendingEmission {
+    fn speed(&self) -> f32 {
+        self.player_vel.norm()
+    }
+
+    fn target_angle(&self) -> Option<f32> {
+        self.target_point.map(|p| {
+            let dir = p - self.player_pos;
+            dir.y.atan2(dir.x)
+        })
+    }
+
+    fn skill_profile(&self) -> SkillProfile {
+        SkillProfile {
+            pass_control: self.pass_skill,
+            weak_foot: self.weak_foot,
+            stamina: self.stamina,
+        }
+    }
+
+    fn face_dir(&self) -> Option<Vec2> {
+        self.target_point.map(|p| (p - self.player_pos).normalize())
+    }
+
+    fn rotate_target(&self, target: Vec2, angle: f32) -> Vec2 {
+        if angle.abs() < 1e-4 {
+            return target;
+        }
+        let offset = target - self.player_pos;
+        if offset.norm_squared() < 1e-8 {
+            return target;
+        }
+        self.player_pos + rotate_vec(offset, angle)
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct IntentRuntime {
@@ -76,24 +139,70 @@ pub struct ExecutionModule {
     pub controllers: Controllers,
     pub intent: Option<IntentRuntime>,
     pub pending_env: Option<DecisionEnvelope>,
+    pending_emit: Option<PendingEmission>,
+    pending_outcome: Option<EmissionOutcome>,
     pub last_apply_tick: u64,
     pub nk_reported: bool,
     pub ball_relinquish_until: u64,
 }
 
 impl ExecutionModule {
-    pub fn apply(&mut self, env: DecisionEnvelope, tick: u64, pitch: &PitchView) -> bool {
-        let is_pass = matches!(env.decision,
-          Decision::GroundPass{..} | Decision::ThroughBall{..} | Decision::LoftedPass{..});
+    pub fn apply(
+        &mut self,
+        env: DecisionEnvelope,
+        tick: u64,
+        pitch: &PitchView,
+        context: ApplyContext,
+    ) -> bool {
+        let is_pass = matches!(
+            env.decision,
+            Decision::GroundPass { .. }
+                | Decision::ThroughBall { .. }
+                | Decision::LoftedPass { .. }
+        );
 
         // 🔒 패스 대기/쿨다운 중 새 패스 금지
         if is_pass {
-          if self.pending_env.is_some() { return false; }
-          if tick < self.controllers.ball.kick_cooldown_until { return false; }
+            if self.pending_env.is_some() {
+                return false;
+            }
+            if tick < self.controllers.ball.kick_cooldown_until {
+                return false;
+            }
         }
 
         self.me_id = env.me_id.unwrap_or(self.me_id);
         self.pending_env = Some(env.clone());
+        self.pending_outcome = None;
+        self.pending_emit = None;
+        self.controllers.loco.face_dir = None;
+
+        if matches!(
+            env.decision,
+            Decision::GroundPass { .. }
+                | Decision::LoftedPass { .. }
+                | Decision::ThroughBall { .. }
+                | Decision::Shoot { .. }
+        ) {
+            self.pending_emit = Some(PendingEmission {
+                body_angle: context.body_angle,
+                player_pos: context.player_pos,
+                player_vel: context.player_vel,
+                stamina: context.stamina,
+                pass_skill: context.pass_skill,
+                weak_foot: context.weak_foot,
+                turn_rate_max: context.turn_rate_max.max(0.0),
+                target_point: context.target_point,
+            });
+        } else if matches!(env.decision, Decision::Hold { .. }) {
+            let dir = (context.ball_pos - context.player_pos).normalize();
+            if dir.norm_squared() > 1e-6 {
+                self.controllers.loco.face_dir = Some(dir);
+            } else {
+                self.controllers.loco.face_dir = Some(Vec2 { x: 1.0, y: 0.0 });
+            }
+        }
+
         let ir = IntentRuntime::from(env.clone(), tick);
         self.planner.replan(&ir, tick, pitch);
         self.intent = Some(ir);
@@ -120,6 +229,8 @@ impl ExecutionModule {
                 return;
             }
 
+            self.update_emission_window(tick);
+
             let is_pass = matches!(self.intent.as_ref().unwrap().ty, decision::IntentType::Pass);
 
             if let Some(tk) = self.planner.pass_timing_tick {
@@ -127,7 +238,24 @@ impl ExecutionModule {
                 if let Some(env) = &self.pending_env {
                     if tick == tk {
                         if self.controllers.ball.kick_cooldown_until <= tick {
+                            let outcome = if let Some(outcome) = self.pending_outcome {
+                                outcome
+                            } else {
+                                dbg::note_emit_blocked(tick, self.me_id, "constraint_pending");
+                                self.planner.pass_timing_tick = Some(tick + 1);
+                                return;
+                            };
+                            let jitter_angle = self.sample_jitter_angle(tick, outcome);
+                            let pending_snapshot = self.pending_emit.clone();
                             dbg::note_emit(tick, self.me_id, &kind_from_env(&env), env.decision.target_id() as i32);
+
+                            let penalty_scale = outcome.penalty.power_scale;
+                            let pace_scale = if matches!(outcome.surface, EmissionSurface::Forward)
+                            {
+                                1.0
+                            } else {
+                                penalty_scale
+                            };
 
                             // 실제 발사
                             match &env.decision {
@@ -135,28 +263,41 @@ impl ExecutionModule {
                                     .push(EngineCmd::GroundPass {
                                         from: self.me_id,
                                         to: *target_id,
-                                        lead: *lead,
-                                        pace: *pace,
+                                        lead: jittered_lead(pending_snapshot.as_ref(), *lead, jitter_angle),
+                                        pace: (*pace * pace_scale).max(0.0),
                                     }),
                                 decision::Decision::LoftedPass { target_id, apex, pace } => engine
                                     .push(EngineCmd::LoftedPass {
                                         from: self.me_id,
                                         to: *target_id,
                                         apex: *apex,
-                                        pace: *pace,
+                                        pace: (*pace * pace_scale).max(0.0),
                                     }),
                                 decision::Decision::ThroughBall { target_id, lead, pace } => engine
                                     .push(EngineCmd::ThroughBall {
                                         from: self.me_id,
                                         to: *target_id,
-                                        lead: *lead,
-                                        pace: *pace,
+                                        lead: jittered_lead(pending_snapshot.as_ref(), *lead, jitter_angle),
+                                        pace: (*pace * pace_scale).max(0.0),
                                     }),
+                                decision::Decision::Shoot { aim, power } => engine.push(EngineCmd::Shoot {
+                                    from: self.me_id,
+                                    aim: jittered_aim(pending_snapshot.as_ref(), *aim, jitter_angle),
+                                    power: (*power * penalty_scale).clamp(0.0, 1.0),
+                                }),
                                 _ => {}
                             }
-                            self.controllers.ball.kick_cooldown_until = tick + 3;
+                            let cooldown_extra = match outcome.surface {
+                                EmissionSurface::Forward => 0,
+                                EmissionSurface::SideLeft | EmissionSurface::SideRight => 1,
+                                EmissionSurface::Backheel => 2,
+                            };
+                            self.controllers.ball.kick_cooldown_until = tick + 3 + cooldown_extra as u64;
                             self.ball_relinquish_until = tick + 2; // suppress has_ball for two subticks
                             self.pending_env = None; // 더 못 쏘게 비움
+                            self.pending_emit = None;
+                            self.pending_outcome = None;
+                            self.controllers.loco.face_dir = None;
                         } else {
                             dbg::note_emit_blocked(tick, self.me_id, "cooldown");
                         }
@@ -171,10 +312,85 @@ impl ExecutionModule {
                 }
             }
             // 연속 제어 커맨드(자세/이동)
-            if let Some(cmd) = self.controllers.update(tick, &mut self.planner, self.me_id) {
+            let intent_ref = self.intent.as_ref();
+            if let Some(cmd) = self
+                .controllers
+                .update(tick, &mut self.planner, self.me_id, intent_ref)
+            {
                 engine.push(cmd);
             }
         }
+    }
+
+    fn update_emission_window(&mut self, tick: u64) {
+        let Some(env) = self.pending_env.as_ref() else {
+            return;
+        };
+
+        if !matches!(
+            env.decision,
+            Decision::GroundPass { .. }
+                | Decision::LoftedPass { .. }
+                | Decision::ThroughBall { .. }
+                | Decision::Shoot { .. }
+        ) {
+            return;
+        }
+
+        let Some(pending) = self.pending_emit.as_ref() else {
+            return;
+        };
+
+        if let Some(dir) = pending.face_dir() {
+            self.controllers.loco.face_dir = Some(dir);
+        }
+
+        let Some(target_angle) = pending.target_angle() else {
+            return;
+        };
+        let Some(tk) = self.planner.pass_timing_tick else {
+            return;
+        };
+
+        let runup_ticks = if tk > tick {
+            (tk - tick) as u8
+        } else {
+            0
+        };
+
+        let input = EmissionInput {
+            body_angle: pending.body_angle,
+            target_angle,
+            runup_ticks,
+            dt: DT,
+            turn_rate_max: pending.turn_rate_max.max(0.0),
+            speed: pending.speed(),
+            skill: pending.skill_profile(),
+        };
+
+        match constraints::evaluate(&input) {
+            EmissionDecision::Emit(outcome) => {
+                self.pending_outcome = Some(outcome);
+            }
+            EmissionDecision::NeedTurn { add_ticks } => {
+                self.pending_outcome = None;
+                let new_tick = if tk <= tick {
+                    tick + add_ticks as u64
+                } else {
+                    tk + add_ticks as u64
+                };
+                self.planner.pass_timing_tick = Some(new_tick);
+            }
+        }
+    }
+
+    fn sample_jitter_angle(&self, tick: u64, outcome: EmissionOutcome) -> f32 {
+        let scale = outcome.penalty.angle_jitter;
+        if scale <= 1e-5 {
+            return 0.0;
+        }
+        let seed = jitter_seed(self.me_id, tick, outcome.surface);
+        scale * sample_unit(seed)
     }
 }
 
@@ -185,3 +401,61 @@ fn kind_from_env(env:&decision::DecisionEnvelope)->dbg::DecKind { match env.deci
     decision::Decision::Hold{..}        => dbg::DecKind::HL,
     _ => dbg::DecKind::Other
 }}
+
+fn jittered_lead(pending: Option<&PendingEmission>, base_lead: Vec2, angle: f32) -> Vec2 {
+    if angle.abs() < 1e-4 {
+        return base_lead;
+    }
+    if let Some(pending) = pending {
+        if let Some(target) = pending.target_point {
+            let rotated = pending.rotate_target(target, angle);
+            let receiver_est = target - base_lead;
+            return rotated - receiver_est;
+        }
+    }
+    base_lead
+}
+
+fn jittered_aim(pending: Option<&PendingEmission>, base_aim: Vec2, angle: f32) -> Vec2 {
+    if angle.abs() < 1e-4 {
+        return base_aim;
+    }
+    if let Some(pending) = pending {
+        return pending.rotate_target(base_aim, angle);
+    }
+    base_aim
+}
+
+fn rotate_vec(vec: Vec2, angle: f32) -> Vec2 {
+    let cos = angle.cos();
+    let sin = angle.sin();
+    Vec2::new(vec.x * cos - vec.y * sin, vec.x * sin + vec.y * cos)
+}
+
+fn jitter_seed(player_id: PlayerId, tick: u64, surface: EmissionSurface) -> u64 {
+    let base = (tick << 17) ^ ((player_id as u64) << 9) ^ surface_code(surface) as u64;
+    mix64(base)
+}
+
+fn surface_code(surface: EmissionSurface) -> u8 {
+    match surface {
+        EmissionSurface::Forward => 1,
+        EmissionSurface::SideLeft => 2,
+        EmissionSurface::SideRight => 3,
+        EmissionSurface::Backheel => 4,
+    }
+}
+
+fn mix64(mut x: u64) -> u64 {
+    x ^= x >> 30;
+    x = x.wrapping_mul(0xBF58476D1CE4E5B9);
+    x ^= x >> 27;
+    x = x.wrapping_mul(0x94D049BB133111EB);
+    x ^ (x >> 31)
+}
+
+fn sample_unit(seed: u64) -> f32 {
+    let bits = mix64(seed);
+    let fraction = (bits as f64) / (u64::MAX as f64);
+    (fraction as f32) * 2.0 - 1.0
+}

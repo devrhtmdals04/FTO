@@ -17,6 +17,7 @@ pub fn start() {
 pub mod ai;
 pub mod commands;
 pub mod engine;
+pub mod logging_sink;
 pub mod params;
 pub mod physics;
 pub mod player_data;
@@ -27,7 +28,6 @@ pub mod spatial;
 pub mod state;
 pub mod tactics;
 pub mod types;
-pub mod logging_sink;
 
 use crate::engine::Engine;
 use crate::snapshot::{DeltaBuffer, SnapshotBuffer};
@@ -181,8 +181,10 @@ impl WasmEngine {
 
     #[wasm_bindgen(js_name = getXtMap)]
     pub fn get_xt_map(&self) -> JsValue {
-        let xt_map_as_vec: Vec<Vec<f32>> =
-            ai::utility::xt::XT_MAP.iter().map(|row| row.to_vec()).collect();
+        let xt_map_as_vec: Vec<Vec<f32>> = ai::utility::xt::XT_MAP
+            .iter()
+            .map(|row| row.to_vec())
+            .collect();
         serde_wasm_bindgen::to_value(&xt_map_as_vec).unwrap()
     }
 
