@@ -1,5 +1,8 @@
-use crate::ai::decision::{Decision, DecisionEnvelope, IntentTarget, IntentType};
-use crate::ai::{EngineCmd, EngineCmdSink, PitchView, PlayerId, Vec2};
+use super::controllers::Controllers;
+use super::planner::Planner;
+use crate::ai::decision::{self, Decision, DecisionEnvelope, IntentTarget, IntentType};
+use crate::ai::{EngineCmd, EngineCmdSink, PitchView, PlayerId};
+use crate::ai::debug::{self as dbg};
 
 #[derive(Clone, Debug)]
 pub struct IntentRuntime {
@@ -33,7 +36,9 @@ impl IntentRuntime {
                 (IntentType::Support, IntentTarget::Player(target_opp))
             }
             Decision::ReceiveToFeet { point } => (IntentType::Receive, IntentTarget::Point(point)),
-            Decision::ReceiveInBehind { point } => (IntentType::Receive, IntentTarget::Point(point)),
+            Decision::ReceiveInBehind { point } => {
+                (IntentType::Receive, IntentTarget::Point(point))
+            }
             Decision::Press { target_opp, .. } => {
                 (IntentType::Press, IntentTarget::Player(target_opp))
             }
@@ -41,7 +46,9 @@ impl IntentRuntime {
             Decision::Mark { target_opp, .. } => (IntentType::Mark, IntentTarget::Player(target_opp)),
             Decision::CoverShadow { line_to } => (IntentType::Cover, IntentTarget::Point(line_to)),
             Decision::BlockShot { line } => (IntentType::Block, IntentTarget::Point(line.b)),
-            Decision::Tackle { target_opp, .. } => (IntentType::Tackle, IntentTarget::Player(target_opp)),
+            Decision::Tackle { target_opp, .. } => {
+                (IntentType::Tackle, IntentTarget::Player(target_opp))
+            }
         };
 
         let hold_ticks = (env.min_hold_ms as u64 / 50).max(1);
@@ -56,122 +63,125 @@ impl IntentRuntime {
     }
 }
 
-#[derive(Clone, Debug, Default)]
-pub struct Planner {
-    pub target_point: Option<Vec2>,
-    pub eta_tick: u64,
-    pub next_replan_tick: u64,
-    pub pass_timing_tick: Option<u64>,
-}
-
-impl Planner {
-    pub fn replan(&mut self, _intent: &IntentRuntime, _pitch: &PitchView) {
-        // TODO: 경로 및 타임라인 계산
-    }
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct LocomotionController {
-    pub desired_vel: Vec2,
-    pub max_speed: f32,
-    pub accel: f32,
-    pub turn_rate: f32,
-    pub body_angle: f32,
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct BallControlController {
-    pub first_touch_power: f32,
-    pub kick_cooldown_until: u64,
-    pub last_kick_tick: u64,
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct Controllers {
-    pub loco: LocomotionController,
-    pub ball: BallControlController,
-}
-
-impl Controllers {
-    pub fn blocked(&self) -> bool {
-        false
-    }
-
-    pub fn update(
-        &mut self,
-        _tick: u64,
-        _planner: &mut Planner,
-        _player_id: PlayerId,
-    ) -> Option<EngineCmd> {
-        None
-    }
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ExecReady {
+    pub can_kick: bool,
+    pub relinquish_until: u64,
 }
 
 #[derive(Default)]
 pub struct ExecutionModule {
+    pub me_id: PlayerId,
     pub planner: Planner,
     pub controllers: Controllers,
     pub intent: Option<IntentRuntime>,
-    pub last_decision: Option<DecisionEnvelope>,
+    pub pending_env: Option<DecisionEnvelope>,
+    pub last_apply_tick: u64,
+    pub nk_reported: bool,
+    pub ball_relinquish_until: u64,
 }
 
 impl ExecutionModule {
-    pub fn apply(&mut self, dec: DecisionEnvelope, tick: u64, pitch: &PitchView) {
-        let runtime = IntentRuntime::from(dec.clone(), tick);
-        self.planner.replan(&runtime, pitch);
-        self.intent = Some(runtime);
-        self.last_decision = Some(dec);
+    pub fn apply(&mut self, env: DecisionEnvelope, tick: u64, pitch: &PitchView) -> bool {
+        let is_pass = matches!(env.decision,
+          Decision::GroundPass{..} | Decision::ThroughBall{..} | Decision::LoftedPass{..});
+
+        // 🔒 패스 대기/쿨다운 중 새 패스 금지
+        if is_pass {
+          if self.pending_env.is_some() { return false; }
+          if tick < self.controllers.ball.kick_cooldown_until { return false; }
+        }
+
+        self.me_id = env.me_id.unwrap_or(self.me_id);
+        self.pending_env = Some(env.clone());
+        let ir = IntentRuntime::from(env.clone(), tick);
+        self.planner.replan(&ir, tick, pitch);
+        self.intent = Some(ir);
+        self.last_apply_tick = tick;
+        self.nk_reported = false;
+        true
     }
 
-    pub fn substep(
-        &mut self,
-        tick: u64,
-        player_id: PlayerId,
-        engine: &mut dyn EngineCmdSink,
-    ) {
-        if let Some(intent) = &mut self.intent {
-            if intent.expired(tick) || self.controllers.blocked() {
+    pub fn readiness(&self, tick: u64) -> ExecReady {
+        ExecReady {
+            can_kick: tick >= self.controllers.ball.kick_cooldown_until
+                && self.pending_env.is_none(),
+            relinquish_until: self.ball_relinquish_until,
+        }
+    }
+
+    pub fn substep(&mut self, tick: u64, _player_id: PlayerId, engine: &mut dyn EngineCmdSink) {
+        if self.intent.is_none() { return; }
+
+        if let Some(i) = &mut self.intent {
+            if i.expired(tick) || self.controllers.blocked() {
                 self.intent = None;
-                self.last_decision = None;
+                self.pending_env = None;
                 return;
             }
 
-            let mut emitted = false;
+            let is_pass = matches!(self.intent.as_ref().unwrap().ty, decision::IntentType::Pass);
 
-            if let Some(last) = &self.last_decision {
-                match &last.decision {
-                    decision::Decision::GroundPass {
-                        target_id,
-                        lead,
-                        pace,
-                    } => {
-                        let cmd = EngineCmd::GroundPass {
-                            from: player_id,
-                            to: *target_id,
-                            lead: *lead,
-                            pace: *pace,
-                        };
-                        engine.push(cmd);
-                        emitted = true;
+            if let Some(tk) = self.planner.pass_timing_tick {
+                // 임팩트 프레임 조건
+                if let Some(env) = &self.pending_env {
+                    if tick == tk {
+                        if self.controllers.ball.kick_cooldown_until <= tick {
+                            dbg::note_emit(tick, self.me_id, &kind_from_env(&env), env.decision.target_id() as i32);
+
+                            // 실제 발사
+                            match &env.decision {
+                                decision::Decision::GroundPass { target_id, lead, pace } => engine
+                                    .push(EngineCmd::GroundPass {
+                                        from: self.me_id,
+                                        to: *target_id,
+                                        lead: *lead,
+                                        pace: *pace,
+                                    }),
+                                decision::Decision::LoftedPass { target_id, apex, pace } => engine
+                                    .push(EngineCmd::LoftedPass {
+                                        from: self.me_id,
+                                        to: *target_id,
+                                        apex: *apex,
+                                        pace: *pace,
+                                    }),
+                                decision::Decision::ThroughBall { target_id, lead, pace } => engine
+                                    .push(EngineCmd::ThroughBall {
+                                        from: self.me_id,
+                                        to: *target_id,
+                                        lead: *lead,
+                                        pace: *pace,
+                                    }),
+                                _ => {}
+                            }
+                            self.controllers.ball.kick_cooldown_until = tick + 3;
+                            self.ball_relinquish_until = tick + 2; // suppress has_ball for two subticks
+                            self.pending_env = None; // 더 못 쏘게 비움
+                        } else {
+                            dbg::note_emit_blocked(tick, self.me_id, "cooldown");
+                        }
                     }
-                    _ => {}
+                }
+            } else {
+                if is_pass && !self.nk_reported {
+                    if tick >= self.last_apply_tick + 1 {
+                        dbg::alert(tick, self.me_id, dbg::Reason::NK, "planner_no_t_kick");
+                        self.nk_reported = true; // 같은 의도에서 한 번만
+                    }
                 }
             }
-
-            if !emitted {
-                if let Some(cmd) = self
-                    .controllers
-                    .update(tick, &mut self.planner, player_id)
-                {
-                    engine.push(cmd);
-                    emitted = true;
-                }
-            }
-
-            if emitted {
-                self.intent = None;
-                self.last_decision = None;
+            // 연속 제어 커맨드(자세/이동)
+            if let Some(cmd) = self.controllers.update(tick, &mut self.planner, self.me_id) {
+                engine.push(cmd);
             }
         }
     }
 }
+
+fn kind_from_env(env:&decision::DecisionEnvelope)->dbg::DecKind { match env.decision {
+    decision::Decision::GroundPass{..}  => dbg::DecKind::GP,
+    decision::Decision::ThroughBall{..} => dbg::DecKind::TP,
+    decision::Decision::LoftedPass{..}  => dbg::DecKind::LP,
+    decision::Decision::Hold{..}        => dbg::DecKind::HL,
+    _ => dbg::DecKind::Other
+}}

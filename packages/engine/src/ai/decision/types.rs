@@ -26,13 +26,75 @@ pub enum Decision {
     Tackle { target_opp: PlayerId, lunge: bool },
 }
 
+impl Decision {
+    pub fn ty_name(&self) -> &'static str {
+        match self {
+            Decision::GroundPass { .. } => "GroundPass",
+            Decision::LoftedPass { .. } => "LoftedPass",
+            Decision::ThroughBall { .. } => "ThroughBall",
+            Decision::Cross { .. } => "Cross",
+            Decision::Shoot { .. } => "Shoot",
+            Decision::Dribble { .. } => "Dribble",
+            Decision::Carry { .. } => "Carry",
+            Decision::Hold { .. } => "Hold",
+            Decision::SupportRun { .. } => "SupportRun",
+            Decision::Overlap { .. } => "Overlap",
+            Decision::Underlap { .. } => "Underlap",
+            Decision::PinDefender { .. } => "PinDefender",
+            Decision::ReceiveToFeet { .. } => "ReceiveToFeet",
+            Decision::ReceiveInBehind { .. } => "ReceiveInBehind",
+            Decision::Press { .. } => "Press",
+            Decision::Jockey { .. } => "Jockey",
+            Decision::Mark { .. } => "Mark",
+            Decision::CoverShadow { .. } => "CoverShadow",
+            Decision::BlockShot { .. } => "BlockShot",
+            Decision::Tackle { .. } => "Tackle",
+        }
+    }
+    pub fn target_id(&self) -> i32 {
+        match self {
+            Decision::GroundPass { target_id, .. }
+            | Decision::LoftedPass { target_id, .. }
+            | Decision::ThroughBall { target_id, .. } => *target_id as i32,
+            _ => -1,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct DecisionEnvelope {
     pub decision: Decision,
+    pub me_id: Option<PlayerId>,
     pub intent_id: u32,
     pub min_hold_ms: u16,
     pub cooldown_ms: u16,
     pub score: f32,
+}
+
+impl DecisionEnvelope {
+    pub fn ty_name(&self) -> &'static str {
+        self.decision.ty_name()
+    }
+
+    pub fn target_id(&self) -> i32 {
+        self.decision.target_id()
+    }
+
+    pub fn pace(&self) -> f32 {
+        match &self.decision {
+            Decision::GroundPass { pace, .. }
+            | Decision::LoftedPass { pace, .. }
+            | Decision::ThroughBall { pace, .. } => *pace,
+            _ => 0.0,
+        }
+    }
+
+    pub fn apex(&self) -> f32 {
+        match &self.decision {
+            Decision::LoftedPass { apex, .. } => *apex,
+            _ => 0.0,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug)]

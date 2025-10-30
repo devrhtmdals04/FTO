@@ -13,6 +13,7 @@ pub enum MsgType {
     HoldUp,
     CoverMe,
     TargetMark,
+    PassIntent,
 }
 
 #[derive(Clone, Copy, Debug, Default)]

@@ -1,5 +1,7 @@
 // --- top-level: 모듈 트리와 공통 타입 ------------------------------
 
+#[macro_use]
+pub mod debug;
 pub mod coach;
 pub mod comm;
 pub mod decision;
@@ -10,7 +12,7 @@ pub mod phase;
 pub mod positioning;
 pub mod scheduler;
 pub mod types;
-pub mod xt;
+pub mod utility;
 pub mod zones;
 
 // 외부 엔진 브리지 방향의 최소 훅(필요시 엔진쪽에서 구현)

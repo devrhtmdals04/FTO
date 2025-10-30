@@ -1,8 +1,9 @@
 use crate::ai::phase::evaluate_team_phase;
-use crate::ai::{
+use crate::ai::{ 
     kickoff_positions, AiScheduler, BallView, EngineCmd, EngineCmdSink, EnginePlayerView,
     EngineView, PhaseLayout, PitchView, PlayerAgent, PlayerId, Role, TacticModel, TeamCtx, Vec3,
 };
+use crate::logging_sink::LoggingSink;
 use crate::params::{PITCH_H, PITCH_W};
 use crate::commands::{parse_command, Cmd, CommandBuffer, CommandError, ParseError};
 use crate::physics::{ball::step_ball, player::step_players, PhysicsContext};
@@ -13,6 +14,7 @@ use crate::state::{World, N_PER_TEAM, N_PLAYERS, N_TEAMS};
 use crate::types::{BallMode, DetailedPlayerRole, Tactic, TeamId, Vec2};
 use log::{info, warn};
 use std::f32::consts::PI;
+use crate::ai::debug as dbg;
 
 pub struct Engine {
     pub world: World,
@@ -384,18 +386,66 @@ impl Engine {
 
     pub fn tick(&mut self) {
         self.world.tick();
+        let tick = self.world.tick as u64;
+
+        dbg::begin_tick(tick);
+
         if self.world.tick % 50 == 0 {
             info!("[Engine] Tick {}", self.world.tick);
         }
         self.world.advance_overrides();
         self.process_commands();
-        self.update_ai();
+
+        // --- AI ---
+        let home_phase = evaluate_team_phase(&self.world, TeamId::Home);
+        let away_phase = evaluate_team_phase(&self.world, TeamId::Away);
+        self.world.home_team_phase = home_phase.to_u8();
+        self.world.away_team_phase = away_phase.to_u8();
+        self.sync_agent_activity();
+        self.refresh_team_contexts();
+        let engine_view = self.build_engine_view_state();
+
+        // 1. ai.execution_substep_20hz(tick, sink);
+        let mut cmd_queue = EngineCmdQueue::default();
+        {
+            let mut logging_sink = LoggingSink {
+                inner: &mut cmd_queue,
+                tick,
+            };
+            Self::collect_execution_commands(
+                &mut self.home_team_ctx,
+                tick,
+                &self.ai_active,
+                &mut logging_sink,
+            );
+            Self::collect_execution_commands(
+                &mut self.away_team_ctx,
+                tick,
+                &self.ai_active,
+                &mut logging_sink,
+            );
+        }
+        for cmd in cmd_queue.drain() {
+            self.apply_engine_cmd(cmd);
+        }
+
+        // 2. engine.physics_step();
         step_players(&mut self.world, &self.ai_active);
         step_ball(
             &mut self.world,
             &self.physics.spatial,
             &mut self._rng.as_mut(),
         );
+
+        // 3. if tick % 2 == 0 { ai.ai_tick_10hz(tick, engine, sink); }
+        if tick % 2 == 0 {
+            self.ai_scheduler
+                .tick(tick, &mut self.home_team_ctx, &engine_view);
+            self.ai_scheduler
+                .tick(tick, &mut self.away_team_ctx, &engine_view);
+        }
+
+        // Other stuff
         self.update_possession();
         handle_restarts(&mut self.world);
         self.sync_restart_layouts();
@@ -404,43 +454,8 @@ impl Engine {
         self.update_hash();
         self.physics.rebuild_spatial(&self.world);
         self.update_player_views();
-    }
 
-    fn update_ai(&mut self) {
-        let home_phase = evaluate_team_phase(&self.world, TeamId::Home);
-        let away_phase = evaluate_team_phase(&self.world, TeamId::Away);
-
-        self.world.home_team_phase = home_phase.to_u8();
-        self.world.away_team_phase = away_phase.to_u8();
-
-        self.sync_agent_activity();
-        self.refresh_team_contexts();
-
-        let engine_view = self.build_engine_view_state();
-        let tick = engine_view.tick;
-        let mut cmd_queue = EngineCmdQueue::default();
-
-        self.ai_scheduler
-            .tick(tick, &mut self.home_team_ctx, &engine_view);
-        Self::collect_execution_commands(
-            &mut self.home_team_ctx,
-            tick,
-            &self.ai_active,
-            &mut cmd_queue,
-        );
-
-        self.ai_scheduler
-            .tick(tick, &mut self.away_team_ctx, &engine_view);
-        Self::collect_execution_commands(
-            &mut self.away_team_ctx,
-            tick,
-            &self.ai_active,
-            &mut cmd_queue,
-        );
-
-        for cmd in cmd_queue.drain() {
-            self.apply_engine_cmd(cmd);
-        }
+        dbg::end_tick(tick);
     }
 
     fn update_possession(&mut self) {
@@ -461,12 +476,31 @@ impl Engine {
         if closest_player_id != -1 {
             let player_id = closest_player_id as usize;
             let params = self.world.p_params[player_id];
-            if closest_player_dist_sq < (params.ctrl_radius * params.ctrl_radius) {
+            if closest_player_dist_sq < (params.ctrl_radius * params.ctrl_radius)
+                && !self.player_relinquish_active(player_id)
+            {
                 self.world.possession = self.world.team_id(player_id) as i8;
+            } else {
+                self.world.possession = -1;
             }
         } else {
             self.world.possession = -1;
         }
+    }
+
+    fn player_relinquish_active(&self, player_idx: usize) -> bool {
+        let tick = self.world.tick as u64;
+        if player_idx < N_PER_TEAM {
+            if let Some(agent) = self.home_team_ctx.players.get(player_idx) {
+                return tick < agent.execution.ball_relinquish_until;
+            }
+        } else {
+            let local_idx = player_idx - N_PER_TEAM;
+            if let Some(agent) = self.away_team_ctx.players.get(local_idx) {
+                return tick < agent.execution.ball_relinquish_until;
+            }
+        }
+        false
     }
 
     pub fn state_hash(&self) -> [u8; 32] {
@@ -662,16 +696,16 @@ impl Engine {
         loft: f32,
         airborne: bool,
     ) {
-        if !self.world.player_has_ball(player_id as usize) {
-            return;
-        }
-
         let origin = self.world.player_pos(player_id as usize);
         let mut dir = (target - origin).normalize();
         if dir.norm() < 1e-4 {
             dir = Vec2::new(1.0, 0.0);
         }
         let speed = base_speed.max(0.0);
+        let params = self.world.p_params[player_id as usize];
+        let release_offset = params.ctrl_radius + 0.05;
+        self.world.bx = origin.x + dir.x * release_offset;
+        self.world.by = origin.y + dir.y * release_offset;
         self.world.bvx = dir.x * speed;
         self.world.bvy = dir.y * speed;
         if airborne {

@@ -1,7 +1,7 @@
 use super::formations;
 use super::perception::LegacyPerceptionSnapshot as PerceptionSnapshot;
 use super::phase::TeamPhase;
-use crate::ai::xt::XT_MAP;
+use crate::ai::utility::xt::XT_MAP;
 use crate::ai::QuantifiedTactics;
 use crate::state::N_PER_TEAM;
 use crate::types::{TeamId, Vec2};
@@ -58,8 +58,11 @@ pub fn compute_best_position(ctx: &PositioningContext) -> Vec2 {
     let mut best_position = my_player_pos;
     let mut best_score = -std::f32::INFINITY;
 
-    let ideal_layout =
-        formations::ideal_layout_for_phase(ctx.perception.team_id, ctx.team_phase, ctx.tactics);
+    let ideal_layout = formations::ideal_layout_for_phase(
+        ctx.perception.team_id,
+        ctx.team_phase,
+        ctx.tactics,
+    );
     let player_index_in_team = ctx.player_index % N_PER_TEAM;
     let home_pos = ideal_layout.positions[player_index_in_team];
 

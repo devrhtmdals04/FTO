@@ -1,3 +1,4 @@
+use super::passes;
 use crate::ai::coach::TacticsView;
 use crate::ai::decision::{DecisionEnvelope, PlayerContext};
 use crate::ai::perception::PerceptionSnapshot;
@@ -5,16 +6,46 @@ use crate::ai::perception::PerceptionSnapshot;
 /// Scores all possible on-ball decisions (pass, shoot, dribble, etc.)
 /// and returns the one with the highest score.
 pub fn score_on_ball_decisions(
-    _snap: &PerceptionSnapshot,
-    _tactics: &TacticsView,
-    _ctx: &PlayerContext,
+    snap: &PerceptionSnapshot,
+    tactics: &TacticsView,
+    ctx: &PlayerContext,
     _rng_seed: u64,
 ) -> Option<DecisionEnvelope> {
-    // TODO: 각 행동 후보(패스, 슛, 드리블 등)에 대한 점수 계산 로직 구현
-    // let pass_options = score_pass_options(snap, tactics, ctx, rng_seed);
-    // let shoot_options = score_shoot_options(snap, tactics, ctx, rng_seed);
-    // ...
+    let mut best: Option<ScoredDecision> = None;
 
-    // 임시로 아무것도 반환하지 않음
-    None
+    if let Some(pass) = passes::best_ground_pass(snap, tactics, ctx) {
+        let scored = ScoredDecision::from_pass(pass);
+        match &best {
+            Some(current) if current.score >= scored.score => {}
+            _ => best = Some(scored),
+        }
+    }
+
+    best.map(|sd| sd.envelope)
+}
+
+struct ScoredDecision {
+    envelope: DecisionEnvelope,
+    score: f32,
+}
+
+impl ScoredDecision {
+    fn from_pass(option: passes::PassOption) -> Self {
+        let envelope = DecisionEnvelope {
+            decision: crate::ai::Decision::GroundPass {
+                target_id: option.target_id,
+                lead: option.lead,
+                pace: option.pace,
+            },
+            intent_id: 1,
+            min_hold_ms: 150,
+            cooldown_ms: 0,
+            score: option.score,
+        };
+
+        Self {
+            envelope,
+            score: option.score,
+        }
+    }
 }

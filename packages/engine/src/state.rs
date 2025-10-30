@@ -260,8 +260,8 @@ impl World {
         let ball_pos = self.ball_pos();
         let dist_sq = (player_pos - ball_pos).norm_squared();
 
-        if dist_sq > 1.5 * 1.5 {
-            // Must be within 1.5 meters
+        let params = self.p_params[idx];
+        if dist_sq > (params.ctrl_radius * params.ctrl_radius) {
             return false;
         }
 
@@ -362,7 +362,7 @@ pub fn compute_params_20(inp: &PlayerInput20) -> PlayerParams {
     let mut v_max = map_inc(inp.pace, 6.0, 9.0, 0.8);
     let mut a_max = map_inc(inp.accel, 6.0, 9.0, 0.8);
     let mut omega_max = map_inc(inp.agility, 6.0, 9.5, 1.1);
-    let mut ctrl_radius = map_inc(inp.first_touch, 0.70, 1.30, 1.1);
+    let mut ctrl_radius = map_inc(inp.first_touch, 0.90, 1.50, 1.1);
     let ctrl_angle_deg = map_inc(inp.vision, 45.0, 120.0, 1.2);
     let pass_speed_max = map_inc(inp.shot_power, 16.0, 24.0, 1.0);
     let shot_speed_max = map_inc(inp.shot_power, 20.0, 32.0, 1.2);

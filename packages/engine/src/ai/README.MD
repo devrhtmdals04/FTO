@@ -520,4 +520,5 @@ Planner: 경로/타임라인/체형각/임팩트 계획 → Controllers: 가속/
 Communication
 
 Broker가 Outbox를 결정적 순서로 정렬/배포 → Inbox 가중치가 다음 Perception/Decision에 반영 →
-팀 동작(오버랩/커버/재압박)이 중복 없이 역할 분담되도록 유도.
+팀 동작(오버랩/커버/재압박)이 중복 없이 역할 분담되도록 유도. 
+위 내용을 .md형식으로 가독성 있게 바꿔줘
