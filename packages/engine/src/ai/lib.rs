@@ -53,8 +53,9 @@ pub enum Footed {
     Both,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Role {
+    Unknown,
     GK,
     RB,
     RCB,
@@ -66,6 +67,12 @@ pub enum Role {
     RW,
     ST,
     LW,
+}
+
+impl Default for Role {
+    fn default() -> Self {
+        Role::Unknown
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -97,7 +104,7 @@ pub enum CrossZone {
     Cutback,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct PitchView {
     pub length: f32,
     pub width: f32,
@@ -221,7 +228,7 @@ impl Default for PlayerAgent {
     fn default() -> Self {
         Self {
             id: 0,
-            role: Role::ST,
+            role: Role::Unknown,
             ctx: decision::PlayerContext::default(),
             perception: perception::PerceptionModule::default(),
             decision: decision::DecisionModule::default(),

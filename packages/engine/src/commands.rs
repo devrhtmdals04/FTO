@@ -42,6 +42,7 @@ pub enum Cmd {
         tx: f32,
         ty: f32,
     },
+    DebugSetMask { mask: u64 },
 }
 
 #[derive(Debug)]
@@ -122,6 +123,11 @@ struct MovePlayerCmd {
     tx: Option<f32>,
     #[serde(default)]
     ty: Option<f32>,
+}
+
+#[derive(Deserialize)]
+struct DebugSetMaskCmd {
+    mask: u64,
 }
 
 pub fn parse_command(js_value: JsValue) -> Result<ParsedCommand, ParseError> {
@@ -225,6 +231,11 @@ pub fn parse_command(js_value: JsValue) -> Result<ParsedCommand, ParseError> {
                     ));
                 }
             }
+        }
+        "debug_set_mask" => {
+            let val: DebugSetMaskCmd = serde_wasm_bindgen::from_value(js_value)?;
+            info!("[Commands] debug_set_mask mask={}", val.mask);
+            Cmd::DebugSetMask { mask: val.mask }
         }
         _ => {
             return Err(ParseError::DeserializeError(format!(

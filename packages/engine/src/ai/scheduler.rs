@@ -6,7 +6,6 @@ use super::decision::Decision;
 use super::decision::types::DecisionEnvelope;
 use super::perception::{ActuationView, PerceptionSnapshot};
 use super::execution::runtime::ApplyContext;
-use crate::ai::debug as dbg;
 
 
 /// 신규 10 Hz 스케줄러.
@@ -39,19 +38,15 @@ impl AiScheduler {
             let act = ActuationView {
                 can_kick: readiness.can_kick,
                 relinquish_until: readiness.relinquish_until,
+                last_kick_tick: team_ctx.players[idx].execution.controllers.ball.last_kick_tick,
             };
             let snapshot =
-                perception_owned.build_snapshot_with_act(slot_tick, engine, &*team_ctx, &act);
-            if snapshot.me.has_ball { 
-                dbg::note_has_ball(slot_tick, player_id); 
-                dbg::set_focus(player_id);
-            }
-
+                perception_owned.build_snapshot_with_act(tick, engine, &*team_ctx, &act);
             let player = &mut team_ctx.players[idx];
             player.perception = perception_owned;
 
             let decision = player.decision.decide(
-                slot_tick,
+                tick,
                 player.id,
                 &snapshot,
                 &tactics,
@@ -140,7 +135,8 @@ fn compute_turn_rate(agent: &PlayerAgent) -> f32 {
     let omega = agent.execution.controllers.loco.turn_rate;
     if omega > 0.0 {
         omega
-    } else {
+    }
+    else {
         4.0
     }
 }
@@ -169,12 +165,14 @@ pub fn decision_to_msg(
     snapshot: &PerceptionSnapshot,
 ) -> Option<TeamMessage> {
     match &decision.decision {
-        Decision::GroundPass { target_id, pace, .. } |
-        Decision::LoftedPass { target_id, pace, .. } |
-        Decision::ThroughBall { target_id, pace, .. } => {
-            let lane_id = snapshot.pass_options.iter()
+        Decision::GroundPass { target_id, pace, .. }
+        | Decision::LoftedPass { target_id, pace, .. }
+        | Decision::ThroughBall { target_id, pace, .. } => {
+            let lane_id = snapshot
+                .pass_options
+                .iter()
                 .find(|o| o.target_id == *target_id)
-                .map_or(None, |o| Some(o.lane_id));
+                .map(|o| o.lane_id);
 
             Some(TeamMessage {
                 tick: 0, // This will be set by the broker

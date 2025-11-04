@@ -96,6 +96,7 @@ checksum = "7c74b8349d32d297c9134b8c88677813a227df8f779daa29bfc29c183fe3dca6"
 name = "engine"
 version = "0.1.0"
 dependencies = [
+ "arrayvec",
  "blake3",
  "console_error_panic_hook",
  "log",
@@ -106,6 +107,7 @@ dependencies = [
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
+ "smallvec",
  "wasm-bindgen",
  "wasm-logger",
  "web-sys",

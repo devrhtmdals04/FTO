@@ -278,6 +278,15 @@ impl World {
         true
     }
 
+    pub fn player_with_ball(&self) -> Option<usize> {
+        for i in 0..N_PLAYERS {
+            if self.player_has_ball(i) {
+                return Some(i);
+            }
+        }
+        None
+    }
+
     /// Returns a range of player indices for a given team.
     pub fn team_slice(team: TeamId) -> core::ops::Range<usize> {
         match team {

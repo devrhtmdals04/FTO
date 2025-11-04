@@ -2,10 +2,11 @@
 
 use super::{MePercept, PassOption, PassType, PerceptionModule, PlayerPercept};
 use crate::ai::coach::{TacticsView, XtGrid};
+use crate::ai::decision::types::{TouchOption, TouchType};
 use crate::ai::utility::math::{clamp, quant_u16_01};
 use crate::ai::{PitchView, TeamId, Vec2};
 use std::vec::Vec;
-use crate::ai::debug::{self, Reason};
+use crate::ai::debug::{self, ReasonCode};
 
 impl PerceptionModule {
     pub(super) fn derive_pass_options(
@@ -82,8 +83,67 @@ impl PerceptionModule {
         out.truncate(MAX_OPTS);
 
         if out.is_empty() {
-            debug::alert(_tick, me.id, Reason::NO, "");
+            debug::alert(_tick, me.id, ReasonCode::NO, "");
         }
+
+        out
+    }
+
+    pub(super) fn derive_touch_options(
+        &mut self,
+        _tick: u64,
+        me: &MePercept,
+        opps: &[PlayerPercept],
+        pitch: &PitchView,
+        xt: &XtGrid,
+        _tactics: &TacticsView,
+    ) -> Vec<TouchOption> {
+        let mut out = Vec::with_capacity(4);
+
+        let closest_opp_dist = opps.iter()
+            .map(|o| dist2(me.pos, o.pos).sqrt())
+            .fold(f32::INFINITY, f32::min);
+
+        let p_turnover_base = (1.0 - (closest_opp_dist / 10.0)).clamp(0.0, 1.0);
+        let current_xt = xt.sample(me.pos, pitch);
+
+        // 1. ReceiveToFeet
+        out.push(TouchOption {
+            ty: TouchType::ReceiveToFeet,
+            dir: Vec2::new(0.0, 0.0),
+            p_turnover: p_turnover_base * 0.5,
+            xt_delta: 0.0, // 제자리이므로 변화 없음
+        });
+
+        // 2. Carry
+        let carry_dir = Vec2::new(me.body_angle.cos(), me.body_angle.sin());
+        let carry_pos = add(me.pos, carry_dir);
+        let carry_xt = xt.sample(carry_pos, pitch);
+        out.push(TouchOption {
+            ty: TouchType::Carry,
+            dir: carry_dir,
+            p_turnover: p_turnover_base * 0.7,
+            xt_delta: carry_xt - current_xt,
+        });
+
+        // 3. ReceiveInBehind
+        let behind_dir = Vec2::new(me.body_angle.cos(), me.body_angle.sin());
+        let behind_pos = add(me.pos, Vec2::new(behind_dir.x * 3.0, behind_dir.y * 3.0)); // 3미터 앞으로
+        let behind_xt = xt.sample(behind_pos, pitch);
+        out.push(TouchOption {
+            ty: TouchType::ReceiveInBehind,
+            dir: behind_dir,
+            p_turnover: p_turnover_base * 1.0,
+            xt_delta: behind_xt - current_xt,
+        });
+        
+        // 4. Shield
+        out.push(TouchOption {
+            ty: TouchType::Shield,
+            dir: Vec2::new(0.0, 0.0),
+            p_turnover: p_turnover_base * 0.2,
+            xt_delta: -0.01, // 약간의 손실 감수
+        });
 
         out
     }

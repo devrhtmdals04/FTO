@@ -188,6 +188,85 @@ export function start() {
     wasm.start();
 }
 
+/**
+ * @param {LogMode} m
+ */
+export function setDebugMode(m) {
+    wasm.setDebugMode(m);
+}
+
+/**
+ * @param {number} raw
+ * @returns {boolean}
+ */
+export function setDebugModeRaw(raw) {
+    const ret = wasm.setDebugModeRaw(raw);
+    return ret !== 0;
+}
+
+/**
+ * @param {number} pid
+ */
+export function setDebugFocus(pid) {
+    wasm.setDebugFocus(pid);
+}
+
+/**
+ * @param {number} n
+ */
+export function setDebugSampleNth(n) {
+    wasm.setDebugSampleNth(n);
+}
+
+/**
+ * @returns {LogMode}
+ */
+export function getDebugMode() {
+    const ret = wasm.getDebugMode();
+    return ret;
+}
+
+/**
+ * @returns {number}
+ */
+export function getDebugFocus() {
+    const ret = wasm.getDebugFocus();
+    return ret;
+}
+
+/**
+ * @returns {number}
+ */
+export function getDebugSampleNth() {
+    const ret = wasm.getDebugSampleNth();
+    return ret;
+}
+
+/**
+ * @param {boolean} on
+ */
+export function setDebugAutoFocus(on) {
+    wasm.setDebugAutoFocus(on);
+}
+
+/**
+ * @returns {boolean}
+ */
+export function getDebugAutoFocus() {
+    const ret = wasm.getDebugAutoFocus();
+    return ret !== 0;
+}
+
+/**
+ * @enum {0 | 1 | 2 | 3}
+ */
+export const LogMode = Object.freeze({
+    Off: 0, "0": "Off",
+    Alerts: 1, "1": "Alerts",
+    Kpi: 2, "2": "Kpi",
+    Bread: 3, "3": "Bread",
+});
+
 const WasmEngineFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_wasmengine_free(ptr >>> 0, 1));
@@ -478,6 +557,12 @@ function __wbg_get_imports() {
     imports.wbg.__wbg_warn_426509218f81762d = function(arg0, arg1, arg2, arg3) {
         console.warn(arg0, arg1, arg2, arg3);
     };
+    imports.wbg.__wbg_wbindgenbigintgetasi64_7637cb1a7fb9a81e = function(arg0, arg1) {
+        const v = arg1;
+        const ret = typeof(v) === 'bigint' ? v : undefined;
+        getDataViewMemory0().setBigInt64(arg0 + 8 * 1, isLikeNone(ret) ? BigInt(0) : ret, true);
+        getDataViewMemory0().setInt32(arg0 + 4 * 0, !isLikeNone(ret), true);
+    };
     imports.wbg.__wbg_wbindgenbooleanget_59f830b1a70d2530 = function(arg0) {
         const v = arg0;
         const ret = typeof(v) === 'boolean' ? v : undefined;
@@ -492,6 +577,10 @@ function __wbg_get_imports() {
     };
     imports.wbg.__wbg_wbindgenin_192b210aa1c401e9 = function(arg0, arg1) {
         const ret = arg0 in arg1;
+        return ret;
+    };
+    imports.wbg.__wbg_wbindgenisbigint_7d76a1ca6454e439 = function(arg0) {
+        const ret = typeof(arg0) === 'bigint';
         return ret;
     };
     imports.wbg.__wbg_wbindgenisfunction_ea72b9d66a0e1705 = function(arg0) {
@@ -509,6 +598,10 @@ function __wbg_get_imports() {
     };
     imports.wbg.__wbg_wbindgenisundefined_71f08a6ade4354e7 = function(arg0) {
         const ret = arg0 === undefined;
+        return ret;
+    };
+    imports.wbg.__wbg_wbindgenjsvaleq_f27272c0a890df7f = function(arg0, arg1) {
+        const ret = arg0 === arg1;
         return ret;
     };
     imports.wbg.__wbg_wbindgenjsvallooseeq_9dd7bb4b95ac195c = function(arg0, arg1) {
@@ -535,6 +628,11 @@ function __wbg_get_imports() {
     imports.wbg.__wbindgen_cast_2241b6af4c4b2941 = function(arg0, arg1) {
         // Cast intrinsic for `Ref(String) -> Externref`.
         const ret = getStringFromWasm0(arg0, arg1);
+        return ret;
+    };
+    imports.wbg.__wbindgen_cast_4625c577ab2ec9ee = function(arg0) {
+        // Cast intrinsic for `U64 -> Externref`.
+        const ret = BigInt.asUintN(64, arg0);
         return ret;
     };
     imports.wbg.__wbindgen_cast_d6cd19b81560fd6e = function(arg0) {

@@ -402,4 +402,5 @@ pub struct Tactic {
     pub lineup: Vec<u32>,
     pub team_tactic: TeamTactic,
     pub personal_instructions: HashMap<u32, PlayerInstruction>,
+    pub debug_mask: Option<u64>,
 }

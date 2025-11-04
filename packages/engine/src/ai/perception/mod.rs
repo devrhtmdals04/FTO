@@ -6,13 +6,12 @@ pub mod sense;
 pub use blackboard::{EntityDistance, PerceptionSnapshot as LegacyPerceptionSnapshot};
 
 use crate::ai::{
-
     comm, coach, types, EngineView, PlayerId, Role, TeamCtx, TeamId, Vec2, Vec3,
-
 };
-
+use crate::ai::decision::types::TouchOption;
 use crate::ai::PhaseMode;
 use crate::ai::debug as dbg;
+use crate::types::TeamId as CoreTeamId;
 
 
 
@@ -38,6 +37,10 @@ pub struct MePercept {
 
     pub relinquish_until: u64,
 
+    pub just_kicked: bool,
+
+    pub last_kick_tick: u64,
+
 }
 
 
@@ -49,6 +52,8 @@ pub struct ActuationView {
     pub can_kick: bool,
 
     pub relinquish_until: u64,
+
+    pub last_kick_tick: u64,
 
 }
 
@@ -88,13 +93,13 @@ pub struct PlayerPercept {
 
 
 #[derive(Clone, Debug, Default)]
-
 pub struct PitchPercept {
-
     pub our_half: bool,
-
     pub zone_id: u16,
-
+    pub our_goal: Vec2,
+    pub their_goal: Vec2,
+    pub length: f32,
+    pub width: f32,
 }
 
 
@@ -174,11 +179,8 @@ impl Default for RolePercept {
     fn default() -> Self {
 
         Self {
-
-            base: Role::ST,
-
+            base: Role::Unknown,
             override_role: None,
-
         }
 
     }
@@ -195,13 +197,25 @@ pub struct VisibilityMap {
 
 }
 
-
-
 #[derive(Clone, Copy, Debug)]
 
 pub enum PassType { Ground, Lofted, Through }
 
+impl PassType {
+    pub fn kind_str(&self) -> &'static str {
+        match self {
+            PassType::Ground => "ground",
+            PassType::Lofted => "lofted",
+            PassType::Through => "through",
+        }
+    }
+}
 
+impl Default for PassType {
+    fn default() -> Self {
+        PassType::Ground
+    }
+}
 
 #[derive(Clone, Debug)]
 
@@ -229,6 +243,24 @@ pub struct PassOption {
 
   pub lane_id: u8,
 
+}
+
+impl Default for PassOption {
+    fn default() -> Self {
+        Self {
+            target_id: 0,
+            ty: PassType::default(),
+            lead: Vec2::default(),
+            pace: 0.0,
+            apex: 0.0,
+            dt_flight: 0.0,
+            p_intercept: 0.0,
+            p_receiver: 0.0,
+            xt_delta: 0.0,
+            offside_on_arrival: false,
+            lane_id: 0,
+        }
+    }
 }
 
 
@@ -264,6 +296,8 @@ pub struct PerceptionSnapshot {
     pub game: types::GameState,
 
     pub pass_options: Vec<PassOption>, // 상위 N만
+
+    pub touch_options: Vec<TouchOption>,
 
 }
 
@@ -318,6 +352,8 @@ impl Default for PerceptionSnapshot {
             },
 
             pass_options: Vec::new(),
+
+            touch_options: Vec::new(),
 
         }
 
@@ -420,29 +456,15 @@ impl PerceptionModule {
     ) -> PerceptionSnapshot {
         let mut snapshot = PerceptionSnapshot::default();
 
+        let pitch_view = engine.pitch();
+
         snapshot.game.clock.minute = ((tick / 3600) % 90) as u16;
         snapshot.game.clock.second = ((tick / 60) % 60) as u8;
         snapshot.game.phase = PhaseMode::Transition;
 
         snapshot.tactics = team.tactics.clone();
 
-        let mut comm_bias = comm::CommBias::default();
-        if let Some(inbox) = team.comm_broker.inboxes.get(self.local_index) {
-            for msg in &inbox.messages {
-                match msg.ty {
-                    comm::MsgType::BallCall => {
-                        comm_bias.pass_bonus_to.push((msg.from, 0.2)); // Example bonus
-                    }
-                    comm::MsgType::OverlapReq => {
-                        if let Some(lane) = msg.payload.lane {
-                            comm_bias.lane_bonus.push((lane, 0.15)); // Example bonus
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
-        snapshot.comm_bias = comm_bias;
+        snapshot.comm_bias = compile_comm_bias(team, self.local_index);
 
         snapshot.me.team = team.team_id;
 
@@ -450,6 +472,16 @@ impl PerceptionModule {
             snapshot.me.id = agent.id;
             snapshot.role.base = agent.role;
         }
+
+        let (our_goal, their_goal) = match CoreTeamId::from_index(team.team_id as usize) {
+            CoreTeamId::Home => (pitch_view.our_goal, pitch_view.their_goal),
+            CoreTeamId::Away => (pitch_view.their_goal, pitch_view.our_goal),
+        };
+
+        snapshot.pitch.our_goal = our_goal;
+        snapshot.pitch.their_goal = their_goal;
+        snapshot.pitch.length = pitch_view.length;
+        snapshot.pitch.width = pitch_view.width;
 
         let ball = engine.ball();
         snapshot.ball = BallPercept {
@@ -487,22 +519,30 @@ impl PerceptionModule {
         snapshot.pitch.our_half = snapshot.me.pos.x < 0.0;
 
         let me_has_ball = snapshot.me.has_ball;
+        let touch_options = self.derive_touch_options(
+            tick,
+            &snapshot.me,
+            &snapshot.opps,
+                &pitch_view,
+                &team.xt_grid,
+                &snapshot.tactics,
+            );
         snapshot.pass_options = if me_has_ball {
             self.derive_pass_options(
                 tick,
                 &snapshot.me,
                 &snapshot.mates,
                 &snapshot.opps,
-                &engine.pitch(),
+                &pitch_view,
                 &team.xt_grid,
                 &snapshot.tactics,
             )
         } else {
             vec![]
         };
-        dbg::note_pass_opts(tick, snapshot.me.id, snapshot.pass_options.len());
+        snapshot.touch_options = touch_options;
         if me_has_ball && snapshot.pass_options.is_empty() {
-            dbg::alert(tick, snapshot.me.id, dbg::Reason::NO, "pass_opts=0");
+            dbg::reason(tick, snapshot.me.id as usize, "no_pass_options");
         }
 
         snapshot
@@ -525,11 +565,34 @@ impl PerceptionModule {
         }
         snapshot.me.can_kick = act.can_kick;
         snapshot.me.relinquish_until = act.relinquish_until;
+        snapshot.me.last_kick_tick = act.last_kick_tick;
+        snapshot.me.just_kicked = (act.last_kick_tick + ms_to_ticks(180)) > tick;
 
         snapshot
     }
 }
 
+
+
+fn compile_comm_bias(team: &TeamCtx, inbox_index: usize) -> comm::CommBias {
+    let mut bias = comm::CommBias::default();
+    if let Some(inbox) = team.comm_broker.inboxes.get(inbox_index) {
+        for msg in &inbox.messages {
+            match msg.ty {
+                comm::MsgType::BallCall => {
+                    bias.pass_bonus_to.push((msg.from, 0.2));
+                }
+                comm::MsgType::OverlapReq => {
+                    if let Some(lane) = msg.payload.lane {
+                        bias.lane_bonus.push((lane, 0.15));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    bias
+}
 
 
 fn build_player_percept(view: &crate::ai::EnginePlayerView, me_pos: Vec2) -> PlayerPercept {
@@ -604,4 +667,8 @@ fn vec_len(v: Vec2) -> f32 {
 
     (v.x * v.x + v.y * v.y).sqrt()
 
+}
+
+fn ms_to_ticks(ms: u64) -> u64 {
+    (ms as f32 / 1000.0 / crate::params::DT) as u64
 }

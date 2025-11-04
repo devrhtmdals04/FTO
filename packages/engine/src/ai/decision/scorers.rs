@@ -1,51 +1,34 @@
-use super::passes;
-use crate::ai::coach::TacticsView;
-use crate::ai::decision::{DecisionEnvelope, PlayerContext};
+use crate::ai::decision::types::{Decision, TouchOption, TouchType};
 use crate::ai::perception::PerceptionSnapshot;
 
-/// Scores all possible on-ball decisions (pass, shoot, dribble, etc.)
-/// and returns the one with the highest score.
-pub fn score_on_ball_decisions(
-    snap: &PerceptionSnapshot,
-    tactics: &TacticsView,
-    ctx: &PlayerContext,
-    _rng_seed: u64,
-) -> Option<DecisionEnvelope> {
-    let mut best: Option<ScoredDecision> = None;
-
-    if let Some(pass) = passes::best_ground_pass(snap, tactics, ctx) {
-        let scored = ScoredDecision::from_pass(pass);
-        match &best {
-            Some(current) if current.score >= scored.score => {}
-            _ => best = Some(scored),
-        }
-    }
-
-    best.map(|sd| sd.envelope)
-}
-
-struct ScoredDecision {
-    envelope: DecisionEnvelope,
+#[derive(Clone, Debug)]
+struct TouchScore {
+    option_idx: usize,
     score: f32,
 }
 
-impl ScoredDecision {
-    fn from_pass(option: passes::PassOption) -> Self {
-        let envelope = DecisionEnvelope {
-            decision: crate::ai::Decision::GroundPass {
-                target_id: option.target_id,
-                lead: option.lead,
-                pace: option.pace,
-            },
-            intent_id: 1,
-            min_hold_ms: 150,
-            cooldown_ms: 0,
-            score: option.score,
-        };
-
-        Self {
-            envelope,
-            score: option.score,
-        }
+pub fn decide_touch(s: &PerceptionSnapshot) -> Option<Decision> {
+    let mut scored: Vec<TouchScore> = vec![];
+    for (i, o) in s.touch_options.iter().enumerate() {
+        let u = score_touch_option(o);
+        scored.push(TouchScore { option_idx: i, score: u });
     }
+
+    let best = scored.iter().max_by(|a, b| a.score.partial_cmp(&b.score).unwrap())?;
+    let o = &s.touch_options[best.option_idx];
+
+    let decision = match o.ty {
+        TouchType::ReceiveToFeet => Decision::ReceiveToFeet { point: s.me.pos },
+        TouchType::ReceiveInBehind => Decision::ReceiveInBehind { point: s.me.pos + o.dir },
+        TouchType::Carry => Decision::Carry { dir: o.dir, speed: 0.5 },
+        TouchType::DirectionalDribble => Decision::Dribble { dir: o.dir, distance: 1.0, shield: false },
+        TouchType::Shield => Decision::Shield { duration_ms: 500 },
+    };
+    Some(decision)
+}
+
+fn score_touch_option(o: &TouchOption) -> f32 {
+    // placeholder scoring logic
+    let safety = 1.0 - o.p_turnover;
+    o.xt_delta + safety
 }

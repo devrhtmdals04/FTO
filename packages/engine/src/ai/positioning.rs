@@ -107,19 +107,13 @@ pub fn compute_best_position(ctx: &PositioningContext) -> Vec2 {
 // 2. Score Calculation Modules
 // =======================================================
 pub fn calculate_normalized_xt_score(pos: Vec2, team_id: TeamId) -> f32 {
-    let grid_index = get_xt_grid_index_from_world_pos(pos);
-
-    let lookup_col = if team_id == TeamId::Home {
-        grid_index.col
+    let x = if team_id == TeamId::Home {
+        pos.x
     } else {
-        (XT_GRID_COLS - 1) - grid_index.col
+        -pos.x
     };
 
-    XT_MAP[lookup_col as usize][grid_index.row as usize]
-}
-
-fn get_xt_grid_index_from_world_pos(pos: Vec2) -> GridIndex {
-    let x_ratio = (pos.x + PITCH_W * 0.5) / PITCH_W;
+    let x_ratio = (x + PITCH_W * 0.5) / PITCH_W;
     let y_ratio = (pos.y + PITCH_H * 0.5) / PITCH_H;
 
     let col_f = x_ratio * (XT_GRID_COLS as f32);
@@ -128,7 +122,7 @@ fn get_xt_grid_index_from_world_pos(pos: Vec2) -> GridIndex {
     let col = (col_f as i32).clamp(0, XT_GRID_COLS - 1);
     let row = (row_f as i32).clamp(0, XT_GRID_ROWS - 1);
 
-    GridIndex { col, row }
+    XT_MAP[col as usize][row as usize]
 }
 
 fn calculate_normalized_formation_score(pos: Vec2, home_pos: Vec2) -> f32 {

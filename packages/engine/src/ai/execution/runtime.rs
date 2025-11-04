@@ -3,7 +3,7 @@ use super::controllers::Controllers;
 use super::planner::Planner;
 use crate::ai::decision::{self, Decision, DecisionEnvelope, IntentTarget, IntentType};
 use crate::ai::debug::{self as dbg};
-use crate::ai::{EngineCmd, EngineCmdSink, PitchView, PlayerId, Vec2};
+use crate::ai::{EngineCmdSink, PitchView, PlayerId, Vec2};
 use crate::params::DT;
 
 #[derive(Clone, Debug, Default)]
@@ -20,7 +20,7 @@ pub struct ApplyContext {
 }
 
 #[derive(Clone, Debug, Default)]
-struct PendingEmission {
+pub struct PendingEmission {
     body_angle: f32,
     player_pos: Vec2,
     player_vel: Vec2,
@@ -112,6 +112,8 @@ impl IntentRuntime {
             Decision::Tackle { target_opp, .. } => {
                 (IntentType::Tackle, IntentTarget::Player(target_opp))
             }
+            Decision::Shield { .. } => (IntentType::Hold, IntentTarget::None),
+            Decision::FindSpace { .. } => (IntentType::Support, IntentTarget::None),
         };
 
         let hold_ticks = (env.min_hold_ms as u64 / 50).max(1);
@@ -198,7 +200,8 @@ impl ExecutionModule {
             let dir = (context.ball_pos - context.player_pos).normalize();
             if dir.norm_squared() > 1e-6 {
                 self.controllers.loco.face_dir = Some(dir);
-            } else {
+            }
+            else {
                 self.controllers.loco.face_dir = Some(Vec2 { x: 1.0, y: 0.0 });
             }
         }
@@ -258,35 +261,16 @@ impl ExecutionModule {
                             };
 
                             // 실제 발사
-                            match &env.decision {
-                                decision::Decision::GroundPass { target_id, lead, pace } => engine
-                                    .push(EngineCmd::GroundPass {
-                                        from: self.me_id,
-                                        to: *target_id,
-                                        lead: jittered_lead(pending_snapshot.as_ref(), *lead, jitter_angle),
-                                        pace: (*pace * pace_scale).max(0.0),
-                                    }),
-                                decision::Decision::LoftedPass { target_id, apex, pace } => engine
-                                    .push(EngineCmd::LoftedPass {
-                                        from: self.me_id,
-                                        to: *target_id,
-                                        apex: *apex,
-                                        pace: (*pace * pace_scale).max(0.0),
-                                    }),
-                                decision::Decision::ThroughBall { target_id, lead, pace } => engine
-                                    .push(EngineCmd::ThroughBall {
-                                        from: self.me_id,
-                                        to: *target_id,
-                                        lead: jittered_lead(pending_snapshot.as_ref(), *lead, jitter_angle),
-                                        pace: (*pace * pace_scale).max(0.0),
-                                    }),
-                                decision::Decision::Shoot { aim, power } => engine.push(EngineCmd::Shoot {
-                                    from: self.me_id,
-                                    aim: jittered_aim(pending_snapshot.as_ref(), *aim, jitter_angle),
-                                    power: (*power * penalty_scale).clamp(0.0, 1.0),
-                                }),
-                                _ => {}
+                            if let Some(cmd) = self.controllers.pass.emit_pass_kick(
+                                &env.decision,
+                                self.me_id,
+                                jittered_lead(pending_snapshot.as_ref(), env.decision.lead(), jitter_angle),
+                                (env.decision.pace() * pace_scale).max(0.0),
+                                env.decision.apex(),
+                            ) {
+                                engine.push(cmd);
                             }
+
                             let cooldown_extra = match outcome.surface {
                                 EmissionSurface::Forward => 0,
                                 EmissionSurface::SideLeft | EmissionSurface::SideRight => 1,
@@ -306,7 +290,7 @@ impl ExecutionModule {
             } else {
                 if is_pass && !self.nk_reported {
                     if tick >= self.last_apply_tick + 1 {
-                        dbg::alert(tick, self.me_id, dbg::Reason::NK, "planner_no_t_kick");
+                        dbg::reason(tick, self.me_id as usize, "planner_no_t_kick");
                         self.nk_reported = true; // 같은 의도에서 한 번만
                     }
                 }
@@ -315,7 +299,7 @@ impl ExecutionModule {
             let intent_ref = self.intent.as_ref();
             if let Some(cmd) = self
                 .controllers
-                .update(tick, &mut self.planner, self.me_id, intent_ref)
+                .update(tick, &mut self.planner, self.me_id, intent_ref, self.pending_env.as_ref())
             {
                 engine.push(cmd);
             }
@@ -392,9 +376,7 @@ impl ExecutionModule {
         let seed = jitter_seed(self.me_id, tick, outcome.surface);
         scale * sample_unit(seed)
     }
-}
-
-fn kind_from_env(env:&decision::DecisionEnvelope)->dbg::DecKind { match env.decision {
+} fn kind_from_env(env:&decision::DecisionEnvelope)->dbg::DecKind { match env.decision {
     decision::Decision::GroundPass{..}  => dbg::DecKind::GP,
     decision::Decision::ThroughBall{..} => dbg::DecKind::TP,
     decision::Decision::LoftedPass{..}  => dbg::DecKind::LP,
@@ -416,15 +398,15 @@ fn jittered_lead(pending: Option<&PendingEmission>, base_lead: Vec2, angle: f32)
     base_lead
 }
 
-fn jittered_aim(pending: Option<&PendingEmission>, base_aim: Vec2, angle: f32) -> Vec2 {
-    if angle.abs() < 1e-4 {
-        return base_aim;
-    }
-    if let Some(pending) = pending {
-        return pending.rotate_target(base_aim, angle);
-    }
-    base_aim
-}
+// fn jittered_aim(pending: Option<&PendingEmission>, base_aim: Vec2, angle: f32) -> Vec2 {
+//     if angle.abs() < 1e-4 {
+//         return base_aim;
+//     }
+//     if let Some(pending) = pending {
+//         return pending.rotate_target(base_aim, angle);
+//     }
+//     base_aim
+// }
 
 fn rotate_vec(vec: Vec2, angle: f32) -> Vec2 {
     let cos = angle.cos();

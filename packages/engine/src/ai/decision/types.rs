@@ -1,6 +1,8 @@
 use crate::ai::{types as game_types, CrossZone, Footed, MarkSide, PlayerId, Vec2};
 use crate::ai::Segment;
 use crate::ai::PressStyle;
+use super::factors::PassFactors;
+use super::micro::MicroAction;
 
 #[derive(Clone, Copy, Debug)]
 pub enum Decision {
@@ -24,6 +26,8 @@ pub enum Decision {
     CoverShadow { line_to: Vec2 },
     BlockShot { line: Segment },
     Tackle { target_opp: PlayerId, lunge: bool },
+    Shield { duration_ms: u16 },
+    FindSpace { radius: f32 },
 }
 
 impl Decision {
@@ -49,6 +53,8 @@ impl Decision {
             Decision::CoverShadow { .. } => "CoverShadow",
             Decision::BlockShot { .. } => "BlockShot",
             Decision::Tackle { .. } => "Tackle",
+            Decision::Shield { .. } => "Shield",
+            Decision::FindSpace { .. } => "FindSpace",
         }
     }
     pub fn target_id(&self) -> i32 {
@@ -57,6 +63,29 @@ impl Decision {
             | Decision::LoftedPass { target_id, .. }
             | Decision::ThroughBall { target_id, .. } => *target_id as i32,
             _ => -1,
+        }
+    }
+
+    pub fn lead(&self) -> Vec2 {
+        match self {
+            Decision::GroundPass { lead, .. } | Decision::ThroughBall { lead, .. } => *lead,
+            _ => Vec2::new(0.0, 0.0),
+        }
+    }
+
+    pub fn pace(&self) -> f32 {
+        match self {
+            Decision::GroundPass { pace, .. }
+            | Decision::LoftedPass { pace, .. }
+            | Decision::ThroughBall { pace, .. } => *pace,
+            _ => 0.0,
+        }
+    }
+
+    pub fn apex(&self) -> f32 {
+        match self {
+            Decision::LoftedPass { apex, .. } => *apex,
+            _ => 0.0,
         }
     }
 }
@@ -136,23 +165,78 @@ impl Default for IntentTarget {
     }
 }
 
-#[derive(Clone, Debug, Default)]
-pub struct Intent {
-    pub intent_id: u32,
-    pub ty: IntentType,
-    pub target: IntentTarget,
-    pub hold_until: u64,
-    pub cooldown_until: u64,
+#[derive(Clone, Debug)]
+pub enum Intent {
+    Micro(MicroIntentState),
+}
+
+#[derive(Clone, Debug)]
+pub struct MicroIntentState {
+    pub action: MicroAction,
+    pub started_tick: u64,
+    pub baseline_gap: PassFactors,
+    pub baseline_score: f32,
+    pub last_score: f32,
+}
+
+impl MicroIntentState {
+    pub fn is_active(&self, tick: u64) -> bool {
+        tick <= self.action.until
+    }
+
+    pub fn committed_until(&self) -> u64 {
+        self.action.until
+    }
+
+    pub fn update_score(&mut self, score: f32) {
+        self.last_score = score;
+    }
+}
+
+impl Intent {
+    pub fn micro(action: MicroAction, tick: u64, baseline_gap: PassFactors, baseline_score: f32) -> Self {
+        Intent::Micro(MicroIntentState {
+            action,
+            started_tick: tick,
+            baseline_gap,
+            baseline_score,
+            last_score: baseline_score,
+        })
+    }
+
+    pub fn expires_at(&self) -> u64 {
+        match self {
+            Intent::Micro(state) => state.committed_until(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct IntentMemory {
-    pub active: Option<Intent>,
+    pub current: Option<Intent>,
 }
 
 impl IntentMemory {
     pub fn clear(&mut self) {
-        self.active = None;
+        self.current = None;
+    }
+
+    pub fn set_micro(&mut self, action: MicroAction, tick: u64, baseline_gap: PassFactors, baseline_score: f32) {
+        self.current = Some(Intent::micro(action, tick, baseline_gap, baseline_score));
+    }
+
+    pub fn current_micro_mut(&mut self) -> Option<&mut MicroIntentState> {
+        match self.current {
+            Some(Intent::Micro(ref mut state)) => Some(state),
+            _ => None,
+        }
+    }
+
+    pub fn current_micro(&self) -> Option<&MicroIntentState> {
+        match self.current {
+            Some(Intent::Micro(ref state)) => Some(state),
+            _ => None,
+        }
     }
 }
 
@@ -205,3 +289,20 @@ impl Default for PlayerContext {
 }
 
 pub type RolePolicy = game_types::RolePolicy;
+
+#[derive(Clone, Debug)]
+pub struct TouchOption {
+  pub ty: TouchType,
+  pub dir: Vec2,
+  pub p_turnover: f32,
+  pub xt_delta: f32,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum TouchType {
+    ReceiveToFeet,
+    ReceiveInBehind,
+    Carry,
+    DirectionalDribble,
+    Shield,
+}

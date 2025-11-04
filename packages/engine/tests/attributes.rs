@@ -4,6 +4,7 @@ use engine::types::Foot;
 #[test]
 fn test_reach_height() {
     let inp = PlayerInput20 {
+        player_id: 0,
         name: "Test Player",
         pace: 10,
         accel: 10,
@@ -36,6 +37,7 @@ fn test_reach_height() {
 #[test]
 fn test_monotonicity() {
     let base_input = PlayerInput20 {
+        player_id: 1,
         name: "Test Player",
         pace: 10,
         accel: 10,

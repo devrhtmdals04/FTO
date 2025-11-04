@@ -3,6 +3,7 @@ use crate::state::World;
 
 pub mod ball;
 pub mod collisions;
+pub mod interaction;
 pub mod player;
 
 pub struct PhysicsContext {

@@ -66,8 +66,21 @@ impl XtGrid {
     }
 
     pub fn sample(&self, p: Vec2, pitch: &PitchView) -> f32 {
-        let _ = (p, pitch);
-        0.0
+        if self.cols == 0 || self.rows == 0 || self.values.is_empty() {
+            return 0.0;
+        }
+
+        let half_len = (pitch.length.max(1e-3)) * 0.5;
+        let half_wid = (pitch.width.max(1e-3)) * 0.5;
+
+        let norm_x = ((p.x + half_len) / (half_len * 2.0)).clamp(0.0, 1.0 - f32::EPSILON);
+        let norm_y = ((p.y + half_wid) / (half_wid * 2.0)).clamp(0.0, 1.0 - f32::EPSILON);
+
+        let col = (norm_x * self.cols as f32) as usize;
+        let row = (norm_y * self.rows as f32) as usize;
+        let idx = self.idx(col.min(self.cols - 1), row.min(self.rows - 1));
+
+        self.values.get(idx).copied().unwrap_or(0.0)
     }
 }
 

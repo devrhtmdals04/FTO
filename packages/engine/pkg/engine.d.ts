@@ -1,6 +1,21 @@
 /* tslint:disable */
 /* eslint-disable */
 export function start(): void;
+export function setDebugMode(m: LogMode): void;
+export function setDebugModeRaw(raw: number): boolean;
+export function setDebugFocus(pid: number): void;
+export function setDebugSampleNth(n: number): void;
+export function getDebugMode(): LogMode;
+export function getDebugFocus(): number;
+export function getDebugSampleNth(): number;
+export function setDebugAutoFocus(on: boolean): void;
+export function getDebugAutoFocus(): boolean;
+export enum LogMode {
+  Off = 0,
+  Alerts = 1,
+  Kpi = 2,
+  Bread = 3,
+}
 export class WasmEngine {
   free(): void;
   constructor(seed: bigint);
@@ -31,6 +46,15 @@ export interface InitOutput {
   readonly wasmengine_getXtMap: (a: number) => any;
   readonly wasmengine_view: (a: number) => [number, number];
   readonly start: () => void;
+  readonly setDebugMode: (a: number) => void;
+  readonly setDebugModeRaw: (a: number) => number;
+  readonly setDebugFocus: (a: number) => void;
+  readonly setDebugSampleNth: (a: number) => void;
+  readonly getDebugMode: () => number;
+  readonly getDebugFocus: () => number;
+  readonly getDebugSampleNth: () => number;
+  readonly setDebugAutoFocus: (a: number) => void;
+  readonly getDebugAutoFocus: () => number;
   readonly __wbindgen_malloc: (a: number, b: number) => number;
   readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
   readonly __wbindgen_exn_store: (a: number) => void;
