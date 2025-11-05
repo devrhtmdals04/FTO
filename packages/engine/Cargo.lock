@@ -99,6 +99,7 @@ dependencies = [
  "arrayvec",
  "blake3",
  "console_error_panic_hook",
+ "js-sys",
  "log",
  "nalgebra",
  "parking_lot",

@@ -1,4 +1,5 @@
 import { ViewerApp } from './app/viewerApp';
+import './debug';
 
 const appElement = document.getElementById('app');
 

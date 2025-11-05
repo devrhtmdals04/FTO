@@ -2,6 +2,12 @@
 
 use arrayvec::ArrayString;
 use core::sync::atomic::{AtomicU64, Ordering, AtomicU8, AtomicU16, AtomicBool};
+#[cfg(target_arch = "wasm32")]
+use js_sys::{Function, Reflect};
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::{JsCast, JsValue};
+#[cfg(target_arch = "wasm32")]
+use web_sys::window;
 
 // --- backward compatibility for K/A/B lines ---
 #[repr(u8)]
@@ -139,10 +145,25 @@ fn next_seq(t:Tick, pid:usize)->Seq {
 
 #[inline]
 fn emit_line(tag:&str, line:&str){
+  let combined = format!("{}{}", tag, line);
   #[cfg(target_arch="wasm32")]
-  web_sys::console::log_1(&format!("{}{}", tag, line).into());
+  {
+    if let Some(handler) = get_dbg_hook() {
+      let js_line = JsValue::from(combined.as_str());
+      let _ = handler.call1(&JsValue::NULL, &js_line);
+    } else {
+      web_sys::console::log_1(&JsValue::from(combined.as_str()));
+    }
+  }
   #[cfg(not(target_arch="wasm32"))]
-  println!("{}{}", tag, line);
+  println!("{}", combined);
+}
+
+#[cfg(target_arch="wasm32")]
+fn get_dbg_hook() -> Option<Function> {
+  let win = window()?;
+  let hook = Reflect::get(&win, &JsValue::from_str("__FTO_DBG")).ok()?;
+  hook.dyn_into().ok()
 }
 
 // ---------- 공개 API ----------

@@ -9,6 +9,7 @@ import { createEngineBridge } from '../wasm/bridge';
 import { createSceneContext, SceneContext } from './sceneContext';
 import { createXtGrid } from '../scene/xt_grid';
 import { createZonesGrid } from '../scene/zones_grid';
+import { debugStore, DEFAULT_TAG_MASK, TAGS, TAG_TO_BIT, DebugUpdate } from '../debug';
 
 const MAX_PLAYERS = 22;
 const STEP_DT = 1 / 20;
@@ -67,7 +68,7 @@ export class ViewerApp {
   private readonly source: EngineBridge = createEngineBridge();
   private readonly players = new PlayerSystem();
   private readonly ball = new Ball();
-  private readonly hud = new HUD();
+  private readonly hud: HUD;
 
   private sceneContext!: SceneContext;
   private readonly keyboardState: Record<string, boolean> = {};
@@ -75,6 +76,7 @@ export class ViewerApp {
 
   private ui: UIElements;
   private debugHotkeys: DebugHotkey[] = [];
+  private debugStoreUnsubscribe: (() => void) | null = null;
   private readonly generalDebugHotkeys: Array<{ label: string; description: string }> = [
     { label: 'Space', description: 'Toggle Pause' },
   ];
@@ -104,6 +106,10 @@ export class ViewerApp {
   private currentPlayerCount = 1;
   private currentModelUrl: string;
 
+  private hudFocusPid: number | null = null;
+  private hudFollowLatest = true;
+  private hudScrubTick: number | null = null;
+
   // Debug visibility flags
   private showPlayerName = true;
   private showPlayerRole = true;
@@ -114,6 +120,14 @@ export class ViewerApp {
   constructor(private readonly mount: HTMLElement, private readonly doc: Document = document) {
     this.ui = this.resolveUIElements();
     this.currentModelUrl = (this.ui.playerModelInput?.value?.trim() || DEFAULT_MODEL_URL);
+    this.hud = new HUD(debugStore, {
+      requestPlaybackToggle: this.handleHudPlaybackToggle,
+      requestStep: this.handleHudStep,
+      requestPlayerFocus: this.handleHudPlayerFocus,
+      requestFollowLatestToggle: this.handleHudFollowToggle,
+      requestTick: this.handleHudTickRequest,
+    });
+    this.debugStoreUnsubscribe = debugStore.subscribe(this.handleDebugUpdate);
     this.debugHotkeys = this.createDebugHotkeys();
   }
 
@@ -169,6 +183,7 @@ export class ViewerApp {
     this.ensureSelectedProfile();
     this.updatePlayerIndexMapping();
     this.renderDebugInfoPanel();
+    this.applyCommitHighlightForTick(this.hudFollowLatest ? null : this.hudScrubTick);
   }
 
   start(): void {
@@ -181,6 +196,9 @@ export class ViewerApp {
     window.removeEventListener('resize', this.handleResize);
     window.removeEventListener('keydown', this.handleKeyDown, true);
     window.removeEventListener('keyup', this.handleKeyUp, true);
+
+    this.debugStoreUnsubscribe?.();
+    this.debugStoreUnsubscribe = null;
 
     this.ui.applyPlayerCountBtn?.removeEventListener('click', this.handleApplyPlayerCount);
     this.ui.applyPlayerModelBtn?.removeEventListener('click', this.handleApplyPlayerModel);
@@ -215,6 +233,10 @@ export class ViewerApp {
     const alpha = this.isPaused ? 1 : this.acc / STEP_DT;
     const interpolatedPlayers = this.interpolatePlayers(alpha);
 
+    const ballHolder = this.curr.players.findIndex((player) => player.has_ball);
+    const selectedPid = this.hudFocusPid ?? (ballHolder >= 0 ? ballHolder : null);
+    this.players.setFocusPlayer(selectedPid);
+
     this.players.update(interpolatedPlayers, this.playerProfiles, dt, {
         showName: this.showPlayerName,
         showRole: this.showPlayerRole,
@@ -222,11 +244,12 @@ export class ViewerApp {
         showAction: this.showPlayerAction,
         showPerceptionRadius: this.showPerceptionRadius,
     });
-    this.ball.update({
+    const interpolatedBall = {
       x: THREE.MathUtils.lerp(this.prev.ball.x, this.curr.ball.x, alpha),
       y: THREE.MathUtils.lerp(this.prev.ball.y, this.curr.ball.y, alpha),
       z: THREE.MathUtils.lerp(this.prev.ball.z, this.curr.ball.z, alpha),
-    });
+    };
+    this.ball.update(interpolatedBall);
 
     if (dt > 0) {
       const newFps = 1 / dt;
@@ -234,8 +257,20 @@ export class ViewerApp {
     }
 
     this.sceneContext.controls.update(dt);
-    this.hud.update(this.curr, this.fps);
+
+    const interpolatedView: SimView = {
+      ...this.curr,
+      ball: interpolatedBall,
+      players: interpolatedPlayers,
+    };
+
+    this.hud.update(interpolatedView, this.fps, {
+      playing: !this.isPaused,
+      stepDt: STEP_DT,
+      selectedPid,
+    });
     this.sceneContext.renderer.render(this.sceneContext.scene, this.sceneContext.camera);
+    this.hud.renderOverlay(this.sceneContext.camera, this.sceneContext.renderer);
 
     this.frameHandle = requestAnimationFrame(this.onFrame);
   };
@@ -417,6 +452,20 @@ export class ViewerApp {
 
     this.keyboardState[event.code] = true;
 
+    if (event.code.startsWith('Digit')) {
+      const digit = Number.parseInt(event.code.slice(5), 10);
+      if (!Number.isNaN(digit)) {
+        event.preventDefault();
+        if (digit === 0) {
+          const mask = debugStore.getMask();
+          debugStore.setMask(mask === 0 ? DEFAULT_TAG_MASK : 0);
+        } else {
+          this.toggleTagByIndex(digit - 1);
+        }
+        return;
+      }
+    }
+
     if (event.code === 'Space') {
       event.preventDefault();
       this.isPaused = !this.isPaused;
@@ -450,6 +499,96 @@ export class ViewerApp {
   private readonly handleKeyUp = (event: KeyboardEvent) => {
     this.keyboardState[event.code] = false;
   };
+
+  private readonly handleDebugUpdate = (update: DebugUpdate) => {
+    if (update.kind !== 'event') {
+      return;
+    }
+    const { event } = update;
+    if (event.hidden) {
+      return;
+    }
+    if (event.tag === 'C' && typeof event.p === 'number') {
+      this.players.triggerCommit(event.p);
+    }
+  };
+
+  private readonly handleHudPlaybackToggle = (playing: boolean) => {
+    this.isPaused = !playing;
+  };
+
+  private readonly handleHudStep = (delta: number, scope: 'all' | 'ai' | 'physics') => {
+    if (delta === 0) {
+      return;
+    }
+    if (delta < 0) {
+      console.warn('[HUD] Reverse stepping is not supported.');
+      return;
+    }
+    if (!this.isPaused) {
+      this.isPaused = true;
+    }
+    const steps = Math.trunc(delta);
+    for (let i = 0; i < steps; i += 1) {
+      this.stepSimulation();
+    }
+    this.acc = 0;
+    if (scope !== 'all') {
+      console.warn(`[HUD] Step scope '${scope}' not available; executed full tick instead.`);
+    }
+  };
+
+  private readonly handleHudPlayerFocus = (pid: number | null) => {
+    this.hudFocusPid = typeof pid === 'number' && Number.isFinite(pid) ? pid : null;
+  };
+
+  private readonly handleHudFollowToggle = (follow: boolean) => {
+    this.hudFollowLatest = follow;
+    if (follow) {
+      this.players.setCommitHighlight([]);
+    } else if (this.hudScrubTick != null) {
+      this.applyCommitHighlightForTick(this.hudScrubTick);
+    }
+  };
+
+  private readonly handleHudTickRequest = (tick: number) => {
+    this.hudScrubTick = Number.isFinite(tick) ? tick : null;
+    if (!this.isPaused) {
+      this.isPaused = true;
+    }
+    if (this.hudFollowLatest) {
+      this.players.setCommitHighlight([]);
+    } else {
+      this.applyCommitHighlightForTick(this.hudScrubTick);
+    }
+  };
+
+  private toggleTagByIndex(index: number): void {
+    if (index < 0 || index >= TAGS.length) {
+      return;
+    }
+    const tag = TAGS[index];
+    const bit = TAG_TO_BIT[tag];
+    const mask = debugStore.getMask();
+    const nextMask = (mask & bit) !== 0 ? (mask & ~bit) : (mask | bit);
+    debugStore.setMask(nextMask);
+  }
+
+  private applyCommitHighlightForTick(tick: number | null): void {
+    if (tick == null) {
+      this.players.setCommitHighlight([]);
+      return;
+    }
+    const snapshot = debugStore.snapshot(tick);
+    const commitEvents = snapshot.perTag.C ?? [];
+    const commitPids: number[] = [];
+    for (const event of commitEvents) {
+      if (typeof event.p === 'number' && Number.isFinite(event.p)) {
+        commitPids.push(event.p);
+      }
+    }
+    this.players.setCommitHighlight(commitPids);
+  }
 
   private readonly handleApplyPlayerCount = () => {
     void this.restartPlayerSystem().catch(err => console.error('Failed to restart player system', err));

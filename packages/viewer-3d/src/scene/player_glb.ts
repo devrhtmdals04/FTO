@@ -15,6 +15,8 @@ export interface PlayerInstance {
   targetMarker?: THREE.Object3D;
   controlRadiusCircle?: THREE.Mesh;
   perceptionRadiusCircle?: THREE.Line; // 시야 범위 원 추가
+  commitAura?: THREE.Mesh;
+  focusAura?: THREE.Mesh;
 }
 
 const modelCache = new Map<string, THREE.Object3D>();
@@ -117,6 +119,40 @@ export function spawnPlayer(template: THREE.Object3D, team: 0|1): PlayerInstance
   controlRadiusCircle.visible = false;
   root.add(controlRadiusCircle);
 
+  const auraInnerRadius = 0.45;
+  const auraOuterRadius = 0.7;
+  const auraGeo = new THREE.RingGeometry(auraInnerRadius, auraOuterRadius, 48);
+  auraGeo.rotateX(-Math.PI / 2);
+  const auraMat = new THREE.MeshBasicMaterial({
+    color: 0x74c0fc,
+    transparent: true,
+    opacity: 0.0,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    depthTest: false,
+  });
+  const commitAura = new THREE.Mesh(auraGeo, auraMat);
+  commitAura.visible = false;
+  commitAura.position.y = 0.02;
+  root.add(commitAura);
+
+  const focusInnerRadius = 0.35;
+  const focusOuterRadius = 0.6;
+  const focusGeo = new THREE.RingGeometry(focusInnerRadius, focusOuterRadius, 48);
+  focusGeo.rotateX(-Math.PI / 2);
+  const focusMat = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.0,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    depthTest: false,
+  });
+  const focusAura = new THREE.Mesh(focusGeo, focusMat);
+  focusAura.visible = false;
+  focusAura.position.y = 0.021;
+  root.add(focusAura);
+
   // Create vertices for a circle outline in a more robust way
   const points = [];
   const divisions = 64;
@@ -141,6 +177,8 @@ export function spawnPlayer(template: THREE.Object3D, team: 0|1): PlayerInstance
     targetMarker: undefined,
     controlRadiusCircle,
     perceptionRadiusCircle, // 인스턴스에 추가
+    commitAura,
+    focusAura,
   };
 
   // 초기 팀 컬러 (GLB 저지 및 디버그 실린더)

@@ -183,11 +183,6 @@ function debugString(val) {
     // TODO we could test for more things here, like `Set`s and `Map`s.
     return className;
 }
-
-export function start() {
-    wasm.start();
-}
-
 /**
  * @param {LogMode} m
  */
@@ -255,6 +250,10 @@ export function setDebugAutoFocus(on) {
 export function getDebugAutoFocus() {
     const ret = wasm.getDebugAutoFocus();
     return ret !== 0;
+}
+
+export function start() {
+    wasm.start();
 }
 
 /**
@@ -428,6 +427,10 @@ function __wbg_get_imports() {
         const ret = arg0.call(arg1);
         return ret;
     }, arguments) };
+    imports.wbg.__wbg_call_f53f0647ceb9c567 = function() { return handleError(function (arg0, arg1, arg2) {
+        const ret = arg0.call(arg1, arg2);
+        return ret;
+    }, arguments) };
     imports.wbg.__wbg_debug_75215abdc8f82abb = function(arg0, arg1, arg2, arg3) {
         console.debug(arg0, arg1, arg2, arg3);
     };
@@ -491,6 +494,16 @@ function __wbg_get_imports() {
         const ret = result;
         return ret;
     };
+    imports.wbg.__wbg_instanceof_Window_7f29e5c72acbfd60 = function(arg0) {
+        let result;
+        try {
+            result = arg0 instanceof Window;
+        } catch (_) {
+            result = false;
+        }
+        const ret = result;
+        return ret;
+    };
     imports.wbg.__wbg_isArray_bc2498eba6fcb71f = function(arg0) {
         const ret = Array.isArray(arg0);
         return ret;
@@ -529,6 +542,10 @@ function __wbg_get_imports() {
         const ret = new Array();
         return ret;
     };
+    imports.wbg.__wbg_newnoargs_a81330f6e05d8aca = function(arg0, arg1) {
+        const ret = new Function(getStringFromWasm0(arg0, arg1));
+        return ret;
+    };
     imports.wbg.__wbg_next_2e6b37020ac5fe58 = function() { return handleError(function (arg0) {
         const ret = arg0.next();
         return ret;
@@ -549,6 +566,22 @@ function __wbg_get_imports() {
         const len1 = WASM_VECTOR_LEN;
         getDataViewMemory0().setInt32(arg0 + 4 * 1, len1, true);
         getDataViewMemory0().setInt32(arg0 + 4 * 0, ptr1, true);
+    };
+    imports.wbg.__wbg_static_accessor_GLOBAL_1f13249cc3acc96d = function() {
+        const ret = typeof global === 'undefined' ? null : global;
+        return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
+    };
+    imports.wbg.__wbg_static_accessor_GLOBAL_THIS_df7ae94b1e0ed6a3 = function() {
+        const ret = typeof globalThis === 'undefined' ? null : globalThis;
+        return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
+    };
+    imports.wbg.__wbg_static_accessor_SELF_6265471db3b3c228 = function() {
+        const ret = typeof self === 'undefined' ? null : self;
+        return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
+    };
+    imports.wbg.__wbg_static_accessor_WINDOW_16fb482f8ec52863 = function() {
+        const ret = typeof window === 'undefined' ? null : window;
+        return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
     };
     imports.wbg.__wbg_value_09d0b4eaab48b91d = function(arg0) {
         const ret = arg0.value;

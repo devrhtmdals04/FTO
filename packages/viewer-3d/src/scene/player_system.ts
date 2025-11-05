@@ -66,6 +66,12 @@ export class PlayerSystem {
   private isPlayerMoving: boolean[] = [];
   private playerIndexMap: number[] = [];
   private moveTargets: Map<number, THREE.Vector3> = new Map();
+  private commitTimers: number[] = [];
+  private commitPersistent = new Set<number>();
+  private focusPid: number | null = null;
+  private readonly commitAuraDuration = 0.8;
+  private readonly commitAuraBaseScale = 1.3;
+  private readonly focusAuraBaseScale = 1.05;
 
   destroy() {
     for (const p of this.inst) {
@@ -93,6 +99,9 @@ export class PlayerSystem {
     this.lockUntil = [];
     this.isPlayerMoving = [];
     this.playerIndexMap = [];
+    this.commitTimers = [];
+    this.commitPersistent.clear();
+    this.focusPid = null;
     this.moveTargets.clear();
     this.ready = false;
   }
@@ -111,6 +120,12 @@ export class PlayerSystem {
     this.lockUntil = new Array(playerCount).fill(0);
     this.isPlayerMoving = new Array(playerCount).fill(false);
     this.playerIndexMap = Array.from({ length: playerCount }, (_, i) => i);
+    const previousTimers = this.commitTimers;
+    this.commitTimers = new Array(playerCount).fill(0);
+    this.commitPersistent.clear();
+    for (let i = 0; i < Math.min(previousTimers.length, this.commitTimers.length); i++) {
+      this.commitTimers[i] = previousTimers[i];
+    }
 
     for (let i = 0; i < playerCount; i++) {
       const p = spawnPlayer(template, i < 11 ? 0 : 1);
@@ -203,6 +218,17 @@ export class PlayerSystem {
 
   update(view: PlayerView[], profiles: PlayerProfile[], dt: number, debugFlags: DebugFlags) {
     if (!this.ready) return;
+
+    if (this.commitTimers.length < view.length) {
+      const missing = view.length - this.commitTimers.length;
+      this.commitTimers.push(...new Array(missing).fill(0));
+    }
+    for (let i = 0; i < this.commitTimers.length; i++) {
+      if (this.commitTimers[i] > 0) {
+        this.commitTimers[i] = Math.max(0, this.commitTimers[i] - dt);
+      }
+    }
+
     for (let i = 0; i < this.inst.length; i++) {
       const mappedIdx = this.playerIndexMap[i] ?? i;
       const v = view[mappedIdx];
@@ -213,6 +239,7 @@ export class PlayerSystem {
       applyTransform(p, v);
 
       const speed = v.speed ?? 0;
+      const xzScale = v.vis_xz ?? v.vis ?? 1;
 
       // --- Locomotion Blending ---
       const s = THREE.MathUtils.clamp(speed, 0, 7);
@@ -267,6 +294,49 @@ export class PlayerSystem {
         if (p.perceptionRadiusCircle) p.perceptionRadiusCircle.visible = false;
       }
 
+      if (p.commitAura) {
+        const remaining = this.commitTimers[mappedIdx] ?? 0;
+        const persistent = this.commitPersistent.has(mappedIdx);
+        const hasTimer = remaining > 0;
+        const baseScale = this.commitAuraBaseScale / xzScale;
+
+        let scale = baseScale;
+        let opacity = 0;
+
+        if (hasTimer) {
+          const intensity = THREE.MathUtils.clamp(remaining / this.commitAuraDuration, 0, 1);
+          const pulse = 1 + 0.25 * (1 - intensity);
+          scale = baseScale * pulse;
+          opacity = Math.max(opacity, 0.12 + 0.45 * intensity);
+        }
+
+        if (persistent) {
+          opacity = Math.max(opacity, 0.32);
+        }
+
+        if (opacity > 0) {
+          p.commitAura.visible = true;
+          p.commitAura.scale.set(scale, 1, scale);
+          const mat = p.commitAura.material as THREE.MeshBasicMaterial;
+          mat.opacity = opacity;
+        } else {
+          p.commitAura.visible = false;
+        }
+      }
+
+      if (p.focusAura) {
+        const isFocus = this.focusPid != null && mappedIdx === this.focusPid;
+        if (isFocus) {
+          const scale = this.focusAuraBaseScale / xzScale;
+          p.focusAura.visible = true;
+          p.focusAura.scale.set(scale, 1, scale);
+          const mat = p.focusAura.material as THREE.MeshBasicMaterial;
+          mat.opacity = 0.35;
+        } else {
+          p.focusAura.visible = false;
+        }
+      }
+
       p.mixer.update(dt);
       this.updateTargetMarker(mappedIdx);
     }
@@ -311,6 +381,45 @@ export class PlayerSystem {
     } else if (instance.targetMarker) {
       instance.targetMarker.visible = false;
     }
+  }
+
+  triggerCommit(pid: number, duration = this.commitAuraDuration) {
+    if (!Number.isFinite(pid) || pid < 0) {
+      return;
+    }
+    const index = Math.trunc(pid);
+    if (index >= this.commitTimers.length) {
+      const extend = index - this.commitTimers.length + 1;
+      this.commitTimers.push(...new Array(extend).fill(0));
+    }
+    const clamped = Math.max(0, duration);
+    this.commitTimers[index] = Math.max(this.commitTimers[index] ?? 0, clamped);
+  }
+
+  setCommitHighlight(pids: Iterable<number> | null | undefined): void {
+    this.commitPersistent.clear();
+    if (!pids) {
+      return;
+    }
+    for (const pid of pids) {
+      if (!Number.isFinite(pid) || pid < 0) {
+        continue;
+      }
+      const index = Math.trunc(pid);
+      if (index >= this.commitTimers.length) {
+        const extend = index - this.commitTimers.length + 1;
+        this.commitTimers.push(...new Array(extend).fill(0));
+      }
+      this.commitPersistent.add(index);
+    }
+  }
+
+  setFocusPlayer(pid: number | null): void {
+    if (pid == null || !Number.isFinite(pid) || pid < 0) {
+      this.focusPid = null;
+      return;
+    }
+    this.focusPid = Math.trunc(pid);
   }
 
   private getInstanceSlot(playerIndex: number): number {

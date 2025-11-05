@@ -1,6 +1,15 @@
 /* tslint:disable */
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
+export const setDebugMode: (a: number) => void;
+export const setDebugModeRaw: (a: number) => number;
+export const setDebugFocus: (a: number) => void;
+export const setDebugSampleNth: (a: number) => void;
+export const getDebugMode: () => number;
+export const getDebugFocus: () => number;
+export const getDebugSampleNth: () => number;
+export const setDebugAutoFocus: (a: number) => void;
+export const getDebugAutoFocus: () => number;
 export const __wbg_wasmengine_free: (a: number, b: number) => void;
 export const wasmengine_new: (a: bigint) => number;
 export const wasmengine_tick: (a: number) => void;
@@ -13,15 +22,6 @@ export const wasmengine_getPlayerDataJson: (a: number) => [number, number];
 export const wasmengine_getXtMap: (a: number) => any;
 export const wasmengine_view: (a: number) => [number, number];
 export const start: () => void;
-export const setDebugMode: (a: number) => void;
-export const setDebugModeRaw: (a: number) => number;
-export const setDebugFocus: (a: number) => void;
-export const setDebugSampleNth: (a: number) => void;
-export const getDebugMode: () => number;
-export const getDebugFocus: () => number;
-export const getDebugSampleNth: () => number;
-export const setDebugAutoFocus: (a: number) => void;
-export const getDebugAutoFocus: () => number;
 export const __wbindgen_malloc: (a: number, b: number) => number;
 export const __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
 export const __wbindgen_exn_store: (a: number) => void;
